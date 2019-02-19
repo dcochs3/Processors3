@@ -186,6 +186,8 @@ module Project(
 
   // Read register values
   assign regval1_ID_w = regs[rs_ID_w];
+  //TODO: this should be dependent upon a mux
+  //and then refactor the name
   assign regval2_ID_w = regs[rt_ID_w];
 
   // Sign extension
@@ -195,6 +197,148 @@ module Project(
   // You may add or change control signals if needed
   // assign is_br_ID_w = ... ;
   // ...
+  
+// our control signals
+//	alu_src:
+//		2b'00 Rt contents
+//		2b'01 sxtImm
+//		2b'10	sxtImm x 4
+//	new_pc_src:
+//		2b'00	PC + 4
+//		2b'01	JAL PC
+//		2b'10	BR PC
+//	mem_we:
+//		1b'0	writing to mem NOT enabled
+//		1b'1	writing to mem ENABLED
+//	mem_re:
+//		1b'0	reading from mem NOT enabled
+//		1b'1	reading from mem ENABLED
+//	reg_we:
+//		1b'0	writing to regs NOT enabled
+//		1b'1	writing to regs ENABLED
+//	reg_wr_src_sel
+//		2b'00	PC
+//		2b'01	Mem data
+//		2b'10	ALU Result
+//	reg_wr_dst_sel
+//		1b'0	Rt specifier
+//		1b'1	Rd specifier
+  
+  if (op1_ID == OP1_ALUR) {
+	//EXT instructions
+	//all of the control signals are the same for these types of instructions
+		alu_src = 2b'00;
+		new_pc_src = 2b'00;
+		mem_we = 1b'0;
+		mem_re = 1b'0;
+		reg_we = 1b'1;
+		reg_wr_src_sel = 2b'10;
+		reg_wr_dst_sel = 1b'1;
+  } else {
+	//its a BR, JAL, LW, SW, or ALUI instruction
+		case(op1_ID)
+			OP1_BEQ : begin
+				alu_src = 2b'00;
+				new_pc_src = 2b'10;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'0;
+				reg_wr_src_sel = 2b'00; //don't care, default
+				reg_wr_dst_sel = 1b'0; //don't care, default
+						 end
+			OP1_BLT : begin
+				alu_src = 2b'00;
+				new_pc_src = 2b'10;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'0;
+				reg_wr_src_sel = 2b'00; //don't care, default
+				reg_wr_dst_sel = 1b'0; //don't care, default
+						 end
+			OP1_BLE : begin
+				alu_src = 2b'00;
+				new_pc_src = 2b'10;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'0;
+				reg_wr_src_sel = 2b'00; //don't care, default
+				reg_wr_dst_sel = 1b'0; //don't care, default
+						 end
+			OP1_BNE : begin
+				alu_src = 2b'00;
+				new_pc_src = 2b'10;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'0;
+				reg_wr_src_sel = 2b'00; //don't care, default
+				reg_wr_dst_sel = 1b'0; //don't care, default
+						 end
+			OP1_JAL : begin
+				alu_src = 2b'10;
+				new_pc_src = 2b'01;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'1;
+				reg_wr_src_sel = 2b'00;
+				reg_wr_dst_sel = 1b'0;
+						 end
+			OP1_LW  : begin
+				alu_src = 2b'01;
+				new_pc_src = 2b'00;
+				mem_we = 1b'0;
+				mem_re = 1b'1;
+				reg_we = 1b'1;
+				reg_wr_src_sel = 2b'01;
+				reg_wr_dst_sel = 1b'0;
+						 end
+			OP1_SW  : begin
+				alu_src = 2b'01;
+				new_pc_src = 2b'00;
+				mem_we = 1b'1;
+				mem_re = 1b'0;
+				reg_we = 1b'0;
+				reg_wr_src_sel = 2b'00; //don't care, default
+				reg_wr_dst_sel = 1b'0; //don't care, default
+						 end
+			OP1_ADDI: begin
+				alu_src = 2b'01;
+				new_pc_src = 2b'00;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'1;
+				reg_wr_src_sel = 2b'10;
+				reg_wr_dst_sel = 1b'0;
+						 end
+			OP1_ANDI: begin
+				alu_src = 2b'01;
+				new_pc_src = 2b'00;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'1;
+				reg_wr_src_sel = 2b'10;
+				reg_wr_dst_sel = 1b'0;
+						 end
+			OP1_ORI : begin
+				alu_src = 2b'01;
+				new_pc_src = 2b'00;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'1;
+				reg_wr_src_sel = 2b'10;
+				reg_wr_dst_sel = 1b'0;
+						 end
+			OP1_XORI: begin
+				alu_src = 2b'01;
+				new_pc_src = 2b'00;
+				mem_we = 1b'0;
+				mem_re = 1b'0;
+				reg_we = 1b'1;
+				reg_wr_src_sel = 2b'10;
+				reg_wr_dst_sel = 1b'0;
+						 end		 		 
+			//default
+		endcase		
+  }  
   
   assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
   
@@ -216,6 +360,25 @@ module Project(
 	   // TODO: Specify ID latches
       PC_ID	 <= PC_FE;
 		//inst_ID <= inst_FE;
+		
+		//rt_spec
+		//rt_cont
+		//rs_cont
+		//sxtImm
+		//rd_spec
+		//alu_src
+		//new_pc_src
+		//mem_we
+		//mem_re
+		//reg_we
+		//reg_wr_src_sel
+		//reg_wr_dst_sel
+		//alu_op		//I don't think we need this
+		
+		//if stall
+		//clk
+		//reset
+		
 
     end
   end
@@ -230,7 +393,7 @@ module Project(
   reg [INSTBITS-1:0] inst_EX; /* This is for debugging */
   reg br_cond_EX;
   reg [2:0] ctrlsig_EX;
-  // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
+  // Note that aluout_EX_r is declared as reg, but it is output signal from combinational logic
   reg signed [DBITS-1:0] aluout_EX_r;
   reg [DBITS-1:0] aluout_EX;
   reg [DBITS-1:0] regval2_EX;
@@ -247,11 +410,26 @@ module Project(
 
   always @ (op1_ID or op2_ID or regval1_ID or regval2_ID or immval_ID) begin
     if(op1_ID == OP1_ALUR)
+	 //these are the EXT instructions
       case (op2_ID)
+			// TODO: complete OP2_*...
 			OP2_EQ	 : aluout_EX_r = {31'b0, regval1_ID == regval2_ID};
 			OP2_LT	 : aluout_EX_r = {31'b0, regval1_ID < regval2_ID};
-			// TODO: complete OP2_*...
-	default	 : aluout_EX_r = {DBITS{1'b0}};
+			OP2_LE	 : aluout_EX_r = {31'b0, regval1_ID <= regval2_ID};
+			OP2_NE	 : aluout_EX_r = {31'b0, regval1_ID != regval2_ID};
+			
+			OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + regval2_ID};
+			OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID and regval2_ID};
+			OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID or regval2_ID};
+			OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID xor regval2_ID};
+			OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - regval2_ID};
+			OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID nand regval2_ID};
+			OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID nor regval2_ID};
+			OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID xnor regval2_ID};
+			OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID sra regval2_ID};
+			OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID sla regval2_ID};
+			
+			default	 : aluout_EX_r = {DBITS{1'b0}};
       endcase
     else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
       aluout_EX_r = regval1_ID + immval_ID;
