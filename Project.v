@@ -101,10 +101,43 @@ module Project(
   reg [DBITS-1:0] pcgood_EX;
   reg [DBITS-1:0] PC_FE;
   reg [INSTBITS-1:0] inst_FE;
+  
   // I-MEM
   (* ram_init_file = IMEMINITFILE *)
   reg [DBITS-1:0] imem [IMEMWORDS-1:0];
   reg mispred_EX;
+  
+  // Constants relevant to FETCH stage
+  parameter take_pcplus = 2'b00;
+  parameter take_jalpc = 2'b01;
+  parameter take_brpc = 2'b11;
+  
+  // ***TEMPORARY***
+  wire [1:0] new_pc_src_ID_w;
+  assign new_pc_src_ID_w = 2'b00;
+  assign stall_pipe = 1'b1;
+  
+  // Display part of PC on sevenseg
+  reg[31:0] counter;
+  `define ONE_SECOND							32'd50000000
+  
+  always @ (posedge clk or posedge reset) begin
+    if (reset)
+	   counter <= 32'b0;
+	 else
+	   if (counter >= `ONE_SECOND)
+		  begin
+          HEX_out[3:0] = PC_FE[3:0];
+	       HEX_out[7:4] = PC_FE[7:4];
+	       HEX_out[11:8] = PC_FE[11:8];
+	       HEX_out[15:12] = PC_FE[15:12];
+	       HEX_out[19:16] = PC_FE[19:16];
+	       HEX_out[23:20] = PC_FE[23:20];
+			 counter <= 32'b0;
+		  end
+		else
+		  counter <= counter + 1;
+  end
   
   // This statement is used to initialize the I-MEM
   // during simulation using Model-Sim
@@ -114,15 +147,20 @@ module Project(
     
   assign inst_FE_w = imem[PC_FE[IMEMADDRBITS-1:IMEMWORDBITS]];
   
+  // Select a PC value
   always @ (posedge clk or posedge reset) begin
     if(reset)
-      PC_FE <= STARTPC;
-    else if(mispred_EX)
-      PC_FE <= pcgood_EX;
+	   PC_FE <= STARTPC;            // Set PC to initial value after a reset
+ //   else if(mispred_EX)
+ //     PC_FE <= pcgood_EX;          // Used to set PC in case of branch misprediction
     else if(!stall_pipe)
-      PC_FE <= pcpred_FE;
+      PC_FE <= pcpred_FE;          // If stalling, ???
     else
-      PC_FE <= PC_FE + INSTSIZE;
+	   case(new_pc_src_ID_w & branch_logic_out)
+		  take_pcplus: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
+		  take_jalpc:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
+//		  take_brpc:   PC_FE <= sxt_addr_out;       // Take PC + sxtImm from EX stage
+      endcase
   end
 
   // This is the value of "incremented PC", computed in the FE stage
@@ -134,9 +172,8 @@ module Project(
   always @ (posedge clk or posedge reset) begin
     if(reset)
       inst_FE <= {INSTBITS{1'b0}};
-    //else
-	   // TODO: Specify inst_FE considering misprediction and stall
-		// ...
+    else if(stall_pipe)        // Only change the register contents if stall signal is 1 (= not stalling)
+      inst_FE <= inst_FE_w;    // Don't need to worry about branch prediction (yet)
   end
 
 
@@ -147,6 +184,7 @@ module Project(
   wire [REGNOBITS-1:0] rd_ID_w;
   wire [REGNOBITS-1:0] rs_ID_w;
   wire [REGNOBITS-1:0] rt_ID_w;
+  wire [1:0] new_pc_src_ID;
   // Two read ports, always using rs and rt for register numbers
   wire [DBITS-1:0] regval1_ID_w;
   wire [DBITS-1:0] regval2_ID_w;
@@ -365,6 +403,12 @@ module Project(
   end
   
   
+ 
+  /*** Branch Handling Logic ***/
+  wire[1:0] branch_logic_out;
+  assign branch_logic_out = 2'b00;  // Placeholder
+  
+ 
   /*** I/O ***/
   // Create and connect HEX register
   reg [23:0] HEX_out;
@@ -376,12 +420,12 @@ module Project(
   SevenSeg ss1(.OUT(HEX1), .IN(HEX_out[7:4]), .OFF(1'b0));
   SevenSeg ss0(.OUT(HEX0), .IN(HEX_out[3:0]), .OFF(1'b0));
   
-  always @ (posedge clk or posedge reset) begin
-    if(reset)
-	   HEX_out <= 24'hFEDEAD;
-	 else if(wr_mem_MEM_w && (memaddr_MEM_w == ADDRHEX))
-      HEX_out <= regval2_EX[HEXBITS-1:0];
-  end
+//  always @ (posedge clk or posedge reset) begin
+//    if(reset)
+//	   HEX_out <= 24'hFEDEAD;
+//	 else if(wr_mem_MEM_w && (memaddr_MEM_w == ADDRHEX))
+//      HEX_out <= regval2_EX[HEXBITS-1:0];
+//  end
 
   // TODO: Write the code for LEDR here
 
