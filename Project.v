@@ -1,4 +1,4 @@
-module Project(
+module Project(  
   input        CLOCK_50,
   input        RESET_N,
   input  [3:0] KEY,
@@ -101,10 +101,40 @@ module Project(
   reg [DBITS-1:0] pcgood_EX;
   reg [DBITS-1:0] PC_FE;
   reg [INSTBITS-1:0] inst_FE;
+  
   // I-MEM
   (* ram_init_file = IMEMINITFILE *)
   reg [DBITS-1:0] imem [IMEMWORDS-1:0];
   reg mispred_EX;
+  
+  // Constants relevant to FETCH stage
+  parameter take_pcplus = 2'b00;
+  parameter take_jalpc = 2'b01;
+  parameter take_brpc = 2'b11;
+  
+  assign stall_pipe = 1'b1;
+  
+  // Display part of PC on sevenseg
+  reg[31:0] counter;
+  `define ONE_SECOND							32'd50000000
+  
+  always @ (posedge clk or posedge reset) begin
+    if (reset)
+	   counter <= 32'b0;
+	 else
+	   if (counter >= `ONE_SECOND)
+		  begin
+          HEX_out[3:0] = PC_FE[3:0];
+	       HEX_out[7:4] = PC_FE[7:4];
+	       HEX_out[11:8] = PC_FE[11:8];
+	       HEX_out[15:12] = PC_FE[15:12];
+	       HEX_out[19:16] = PC_FE[19:16];
+	       HEX_out[23:20] = PC_FE[23:20];
+			 counter <= 32'b0;
+		  end
+		else
+		  counter <= counter + 1;
+  end
   
   // This statement is used to initialize the I-MEM
   // during simulation using Model-Sim
@@ -114,15 +144,20 @@ module Project(
     
   assign inst_FE_w = imem[PC_FE[IMEMADDRBITS-1:IMEMWORDBITS]];
   
+  // Select a PC value
   always @ (posedge clk or posedge reset) begin
     if(reset)
-      PC_FE <= STARTPC;
-    else if(mispred_EX)
-      PC_FE <= pcgood_EX;
+	   PC_FE <= STARTPC;            // Set PC to initial value after a reset
+ //   else if(mispred_EX)
+ //     PC_FE <= pcgood_EX;          // Used to set PC in case of branch misprediction
     else if(!stall_pipe)
-      PC_FE <= pcpred_FE;
+      PC_FE <= pcpred_FE;          // If stalling, ???
     else
-      PC_FE <= PC_FE + INSTSIZE;
+	   case(new_pc_src_ID_w & branch_logic_out)
+		  take_pcplus: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
+		  take_jalpc:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
+//		  take_brpc:   PC_FE <= sxt_addr_out;       // Take PC + sxtImm from EX stage
+      endcase
   end
 
   // This is the value of "incremented PC", computed in the FE stage
@@ -134,9 +169,8 @@ module Project(
   always @ (posedge clk or posedge reset) begin
     if(reset)
       inst_FE <= {INSTBITS{1'b0}};
-    //else
-	   // TODO: Specify inst_FE considering misprediction and stall
-		// ...
+    else if(stall_pipe)        // Only change the register contents if stall signal is 1 (= not stalling)
+      inst_FE <= inst_FE_w;    // Don't need to worry about branch prediction (yet)
   end
 
 
@@ -213,6 +247,19 @@ module Project(
 
   // Sign extension
   SXT mysxt (.IN(imm_ID_w), .OUT(sxt_imm_ID_w));
+  
+  // Control signal generator
+  CONTROL_SIGNAL_GENERATOR control_signal_generator_inst(
+    .OPCODE1_IN(op1_ID_w),
+	 .CLOCK(clk),
+	 .ALUSRC_OUT(alu_src_ID_w),
+	 .NEWPCSRC_OUT(new_pc_src_ID_w),
+	 .MEMWE_OUT(mem_we_ID_w),
+	 .MEMRE_OUT(mem_re_ID_w),
+	 .REGWE_OUT(reg_we_ID_w),
+	 .REGWRSRCSEL_OUT(reg_wr_src_sel_ID_w),
+	 .REGWRDSTSEL_OUT(reg_wr_dst_sel_ID_w)
+  );
 
   // TODO: Specify control signals such as is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, etc.
   // You may add or change control signals if needed
@@ -244,122 +291,7 @@ module Project(
 //	reg_wr_dst_sel
 //		1b'0	Rt specifier
 //		1b'1	Rd specifier
-  
-  if (op1_ID_w == OP1_ALUR) begin
-	//EXT instructions
-	//all of the control signals are the same for these types of instructions
-		alu_src_ID_w = 2b'00;
-		new_pc_src_ID_w = 2b'00;
-		mem_we_ID_w = 1b'0;
-		mem_re_ID_w = 1b'0;
-		reg_we_ID_w = 1b'1;
-		reg_wr_src_sel_ID_w = 2b'10;
-		reg_wr_dst_sel_ID_w = 1b'1;
-  end else begin
-	//its a BR, JAL, LW, SW, or ALUI instruction
-		case(op1_ID_w)
-			OP1_BEQ : begin
-				alu_src_ID_w = 2b'00;
-				new_pc_src_ID_w = 2b'10;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'0;
-				reg_wr_src_sel_ID_w = 2b'00; //don't care, default
-				reg_wr_dst_sel_ID_w = 1b'0; //don't care, default
-						 end
-			OP1_BLT : begin
-				alu_src_ID_w = 2b'00;
-				new_pc_src_ID_w = 2b'10;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'0;
-				reg_wr_src_sel_ID_w = 2b'00; //don't care, default
-				reg_wr_dst_sel_ID_w = 1b'0; //don't care, default
-						 end
-			OP1_BLE : begin
-				alu_src_ID_w = 2b'00;
-				new_pc_src_ID_w = 2b'10;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'0;
-				reg_wr_src_sel_ID_w = 2b'00; //don't care, default
-				reg_wr_dst_sel_ID_w = 1b'0; //don't care, default
-						 end
-			OP1_BNE : begin
-				alu_src_ID_w = 2b'00;
-				new_pc_src_ID_w = 2b'10;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'0;
-				reg_wr_src_sel_ID_w = 2b'00; //don't care, default
-				reg_wr_dst_sel_ID_w = 1b'0; //don't care, default
-						 end
-			OP1_JAL : begin
-				alu_src_ID_w = 2b'10;
-				new_pc_src_ID_w = 2b'01;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'1;
-				reg_wr_src_sel_ID_w = 2b'00;
-				reg_wr_dst_sel_ID_w = 1b'0;
-						 end
-			OP1_LW  : begin
-				alu_src_ID_w = 2b'01;
-				new_pc_src_ID_w = 2b'00;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'1;
-				reg_we_ID_w = 1b'1;
-				reg_wr_src_sel_ID_w = 2b'01;
-				reg_wr_dst_sel_ID_w = 1b'0;
-						 end
-			OP1_SW  : begin
-				alu_src_ID_w = 2b'01;
-				new_pc_src_ID_w = 2b'00;
-				mem_we_ID_w = 1b'1;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'0;
-				reg_wr_src_sel_ID_w = 2b'00; //don't care, default
-				reg_wr_dst_sel_ID_w = 1b'0; //don't care, default
-						 end
-			OP1_ADDI: begin
-				alu_src_ID_w = 2b'01;
-				new_pc_src_ID_w = 2b'00;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'1;
-				reg_wr_src_sel_ID_w = 2b'10;
-				reg_wr_dst_sel_ID_w = 1b'0;
-						 end
-			OP1_ANDI: begin
-				alu_src_ID_w = 2b'01;
-				new_pc_src_ID_w = 2b'00;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'1;
-				reg_wr_src_sel_ID_w = 2b'10;
-				reg_wr_dst_sel_ID_w = 1b'0;
-						 end
-			OP1_ORI : begin
-				alu_src_ID_w = 2b'01;
-				new_pc_src_ID_w = 2b'00;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'1;
-				reg_wr_src_sel_ID_w = 2b'10;
-				reg_wr_dst_sel_ID_w = 1b'0;
-						 end
-			OP1_XORI: begin
-				alu_src_ID_w = 2b'01;
-				new_pc_src_ID_w = 2b'00;
-				mem_we_ID_w = 1b'0;
-				mem_re_ID_w = 1b'0;
-				reg_we_ID_w = 1b'1;
-				reg_wr_src_sel_ID_w = 2b'10;
-				reg_wr_dst_sel_ID_w = 1b'0;
-						 end		 		 
-			//default
-		endcase		
-  end
+   
   
   assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
   
@@ -382,10 +314,10 @@ module Project(
       PC_ID	 <= PC_FE; //PC
 		rt_spec_ID <= rt_ID_w; //RtSpec
 		regval2_ID <= regval2_ID_w; //RtCont
-		regval1_ID <= ; regval1_ID_w//RsCont
+		regval1_ID <= regval1_ID_w; //RsCont
 		sxt_imm_ID <= sxt_imm_ID_w; //sxtImm
 		
-		rd_spec_ID <= rd_spec_ID_w; //RdSpec
+		rd_spec_ID <= rd_ID_w; //RdSpec
 		alu_src_ID <= alu_src_ID_w; //ALUSrc
 		new_pc_src_ID <= new_pc_src_ID_w; //NewPCSrc
 		mem_we_ID <= mem_we_ID_w; //MemWE
@@ -413,10 +345,22 @@ module Project(
   reg [INSTBITS-1:0] inst_EX; /* This is for debugging */
   reg br_cond_EX;
   reg [2:0] ctrlsig_EX;
-  // Note that aluout_EX_r is declared as reg, but it is output signal from combinational logic
+  // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
   reg signed [DBITS-1:0] aluout_EX_r;
   reg [DBITS-1:0] aluout_EX;
-  reg [DBITS-1:0] regval2_EX;
+  reg [DBITS-1:0] regval2_EX; //RtCont
+    
+   //my wires and registers
+	//wire [DBITS-1:0] alu_result_EX_w; //ALU Result
+	wire [DBITS-1:0] alu_in_EX_w; //ALU input (from mux)
+	wire [REGNOBITS-1:0] dst_reg_EX_w; //DstReg
+	reg [DBITS-1:0] PC_EX; //PC
+	//reg [DBITS-1:0] alu_result_EX; //ALUResult
+	reg [REGNOBITS-1:0] dst_reg_EX; //DstReg
+	reg [0:0] mem_we_EX; //MemWE (1 bit)
+	reg [0:0] mem_re_EX; //MemRE (1 bit)
+	reg [0:0] reg_we_EX; //RegWE (1 bit)
+	reg [1:0] reg_wr_src_sel_EX; //RegWrSrcSel (2 bits)
 
   always @ (op1_ID or regval1_ID or regval2_ID) begin
     case (op1_ID)
@@ -430,26 +374,21 @@ module Project(
 
   always @ (op1_ID or op2_ID or regval1_ID or regval2_ID or immval_ID) begin
     if(op1_ID == OP1_ALUR)
-	 //these are the EXT instructions
       case (op2_ID)
-			// TODO: complete OP2_*...
 			OP2_EQ	 : aluout_EX_r = {31'b0, regval1_ID == regval2_ID};
 			OP2_LT	 : aluout_EX_r = {31'b0, regval1_ID < regval2_ID};
-			OP2_LE	 : aluout_EX_r = {31'b0, regval1_ID <= regval2_ID};
-			OP2_NE	 : aluout_EX_r = {31'b0, regval1_ID != regval2_ID};
-			
-//			OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + regval2_ID};
-//			OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID and regval2_ID};
-//			OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID or regval2_ID};
-//			OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID xor regval2_ID};
-//			OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - regval2_ID};
-//			OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID nand regval2_ID};
-//			OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID nor regval2_ID};
-//			OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID xnor regval2_ID};
-//			OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID sra regval2_ID};
-//			OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID sla regval2_ID};
-			
-			default	 : aluout_EX_r = {DBITS{1'b0}};
+			// TODO: complete OP2_*...
+			//	OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + regval2_ID};
+			// OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID and regval2_ID};
+			// OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID or regval2_ID};
+			// OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID xor regval2_ID};
+			// OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - regval2_ID};
+			// OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID nand regval2_ID};
+			// OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID nor regval2_ID};
+			// OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID xnor regval2_ID};
+			// OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID sra regval2_ID};
+			// OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID sla regval2_ID};
+	default	 : aluout_EX_r = {DBITS{1'b0}};
       endcase
     else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
       aluout_EX_r = regval1_ID + immval_ID;
@@ -563,6 +502,12 @@ module Project(
   end
   
   
+ 
+  /*** Branch Handling Logic ***/
+  wire[1:0] branch_logic_out;
+  assign branch_logic_out = 2'b00;  // Placeholder
+  
+ 
   /*** I/O ***/
   // Create and connect HEX register
   reg [23:0] HEX_out;
@@ -574,12 +519,12 @@ module Project(
   SevenSeg ss1(.OUT(HEX1), .IN(HEX_out[7:4]), .OFF(1'b0));
   SevenSeg ss0(.OUT(HEX0), .IN(HEX_out[3:0]), .OFF(1'b0));
   
-  always @ (posedge clk or posedge reset) begin
-    if(reset)
-	   HEX_out <= 24'hFEDEAD;
-	 else if(wr_mem_MEM_w && (memaddr_MEM_w == ADDRHEX))
-      HEX_out <= regval2_EX[HEXBITS-1:0];
-  end
+//  always @ (posedge clk or posedge reset) begin
+//    if(reset)
+//	   HEX_out <= 24'hFEDEAD;
+//	 else if(wr_mem_MEM_w && (memaddr_MEM_w == ADDRHEX))
+//      HEX_out <= regval2_EX[HEXBITS-1:0];
+//  end
 
   // TODO: Write the code for LEDR here
 
@@ -602,3 +547,154 @@ module SXT(IN, OUT);
   assign OUT = {{(OBITS-IBITS){IN[IBITS-1]}}, IN};
 endmodule
 
+module CONTROL_SIGNAL_GENERATOR(
+  input        [5:0] OPCODE1_IN,
+  input              CLOCK,
+  output reg   [1:0] ALUSRC_OUT,
+  output reg   [1:0] NEWPCSRC_OUT,
+  output reg         MEMWE_OUT,
+  output reg         MEMRE_OUT,
+  output reg         REGWE_OUT,
+  output reg   [1:0] REGWRSRCSEL_OUT,
+  output reg         REGWRDSTSEL_OUT
+);
+
+always @ (*) begin
+  parameter OP1_ALUR = 6'b000000;
+  parameter OP1_BEQ  = 6'b001000;
+  parameter OP1_BLT  = 6'b001001;
+  parameter OP1_BLE  = 6'b001010;
+  parameter OP1_BNE  = 6'b001011;
+  parameter OP1_JAL  = 6'b001100;
+  parameter OP1_LW   = 6'b010010;
+  parameter OP1_SW   = 6'b011010;
+  parameter OP1_ADDI = 6'b100000;
+  parameter OP1_ANDI = 6'b100100;
+  parameter OP1_ORI  = 6'b100101;
+  parameter OP1_XORI = 6'b100110;
+  
+  case (OPCODE1_IN)
+    //EXT instructions
+    //all of the control signals are the same for these types of instructions
+    OP1_ALUR : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+		REGWRDSTSEL_OUT = 1'b1;
+	 end
+		
+	 OP1_BEQ : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+    OP1_BLT : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+		
+	 OP1_BLE : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+	 OP1_BNE : begin
+	   ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+    OP1_JAL : begin
+		ALUSRC_OUT = 2'b10;
+		NEWPCSRC_OUT = 2'b01;
+		MEMWE_OUT = 1'b0;
+	   MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b00;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_LW  : begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+	   MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b1;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b01;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_SW  : begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b1;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+	 OP1_ADDI: begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+	   MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_ANDI: begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+	   REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_ORI : begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_XORI: begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+	   MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+	   REGWRDSTSEL_OUT = 1'b0;
+	 end	
+  endcase		
+end
+endmodule
