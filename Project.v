@@ -1,4 +1,4 @@
-module Project(
+module Project(  
   input        CLOCK_50,
   input        RESET_N,
   input  [3:0] KEY,
@@ -112,9 +112,6 @@ module Project(
   parameter take_jalpc = 2'b01;
   parameter take_brpc = 2'b11;
   
-  // ***TEMPORARY***
-  wire [1:0] new_pc_src_ID_w;
-  assign new_pc_src_ID_w = 2'b00;
   assign stall_pipe = 1'b1;
   
   // Display part of PC on sevenseg
@@ -184,7 +181,6 @@ module Project(
   wire [REGNOBITS-1:0] rd_ID_w;
   wire [REGNOBITS-1:0] rs_ID_w;
   wire [REGNOBITS-1:0] rt_ID_w;
-  wire [1:0] new_pc_src_ID;
   // Two read ports, always using rs and rt for register numbers
   wire [DBITS-1:0] regval1_ID_w;
   wire [DBITS-1:0] regval2_ID_w;
@@ -198,6 +194,15 @@ module Project(
   wire [REGNOBITS-1:0] wregno_ID_w;
   wire wr_reg_EX_w;
   wire wr_reg_MEM_w;
+  
+  //control signal wires
+  wire [1:0] alu_src_ID_w;
+  wire [1:0] new_pc_src_ID_w;
+  wire [0:0] mem_we_ID_w;
+  wire [0:0] mem_re_ID_w;
+  wire [0:0] reg_we_ID_w;
+  wire [1:0] reg_wr_src_sel_ID_w;
+  wire [0:0] reg_wr_dst_sel_ID_w; 
   
   // Register file
   reg [DBITS-1:0] PC_ID;
@@ -213,6 +218,20 @@ module Project(
   reg [REGNOBITS-1:0] wregno_EX;
   reg [REGNOBITS-1:0] wregno_MEM;
   reg [INSTBITS-1:0] inst_ID;
+  
+  //Buffer Registers
+  reg [DBITS-1:0] sxt_imm_ID;
+  reg [REGNOBITS-1:0] rt_spec_ID;
+  reg [REGNOBITS-1:0] rd_spec_ID; //RdSpec
+  //Control signals
+  reg [1:0] alu_src_ID; //ALUSrc (2 bits)
+  reg [1:0] new_pc_src_ID; //NewPCSrc (2 bits)
+  reg [0:0] mem_we_ID; //MemWE (1 bit)
+  reg [0:0] mem_re_ID; //MemRE (1 bit)
+  reg [0:0] reg_we_ID; //RegWE (1 bit)
+  reg [1:0] reg_wr_src_sel_ID; //RegWrSrcSel (2 bits)
+  reg [0:0] reg_wr_dst_sel_ID; //RegWrDstSel (1 bit)
+ 
 
   // TODO: Specify signals such as op*_ID_w, imm_ID_w, r*_ID_w
   assign op1_ID_w = inst_FE[31:26];
@@ -228,11 +247,51 @@ module Project(
 
   // Sign extension
   SXT mysxt (.IN(imm_ID_w), .OUT(sxt_imm_ID_w));
+  
+  // Control signal generator
+  CONTROL_SIGNAL_GENERATOR control_signal_generator_inst(
+    .OPCODE1_IN(op1_ID_w),
+	 .CLOCK(clk),
+	 .ALUSRC_OUT(alu_src_ID_w),
+	 .NEWPCSRC_OUT(new_pc_src_ID_w),
+	 .MEMWE_OUT(mem_we_ID_w),
+	 .MEMRE_OUT(mem_re_ID_w),
+	 .REGWE_OUT(reg_we_ID_w),
+	 .REGWRSRCSEL_OUT(reg_wr_src_sel_ID_w),
+	 .REGWRDSTSEL_OUT(reg_wr_dst_sel_ID_w)
+  );
 
   // TODO: Specify control signals such as is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, etc.
   // You may add or change control signals if needed
   // assign is_br_ID_w = ... ;
   // ...
+  
+// Set the control signal wires
+//	alu_src:
+//		2b'00 Rt contents
+//		2b'01 sxtImm
+//		2b'10	sxtImm x 4
+//	new_pc_src:
+//		2b'00	PC + 4
+//		2b'01	JAL PC
+//		2b'10	BR PC
+//	mem_we:
+//		1b'0	writing to mem NOT enabled
+//		1b'1	writing to mem ENABLED
+//	mem_re:
+//		1b'0	reading from mem NOT enabled
+//		1b'1	reading from mem ENABLED
+//	reg_we:
+//		1b'0	writing to regs NOT enabled
+//		1b'1	writing to regs ENABLED
+//	reg_wr_src_sel
+//		2b'00	PC
+//		2b'01	Mem data
+//		2b'10	ALU Result
+//	reg_wr_dst_sel
+//		1b'0	Rt specifier
+//		1b'1	Rd specifier
+   
   
   assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
   
@@ -252,8 +311,26 @@ module Project(
       ctrlsig_ID <= 5'h0;
     end else begin
 	   // TODO: Specify ID latches
-      PC_ID	 <= PC_FE;
-		//inst_ID <= inst_FE;
+      PC_ID	 <= PC_FE; //PC
+		rt_spec_ID <= rt_ID_w; //RtSpec
+		regval2_ID <= regval2_ID_w; //RtCont
+		regval1_ID <= regval1_ID_w; //RsCont
+		sxt_imm_ID <= sxt_imm_ID_w; //sxtImm
+		
+		rd_spec_ID <= rd_ID_w; //RdSpec
+		alu_src_ID <= alu_src_ID_w; //ALUSrc
+		new_pc_src_ID <= new_pc_src_ID_w; //NewPCSrc
+		mem_we_ID <= mem_we_ID_w; //MemWE
+		mem_re_ID <= mem_re_ID_w; //MemRE
+		reg_we_ID <= reg_we_ID_w; //RegWE
+		reg_wr_src_sel_ID <= reg_wr_src_sel_ID_w; //RegWrSrcSel
+		reg_wr_dst_sel_ID <= reg_wr_dst_sel_ID_w; //RegWrDstSel
+		
+		//these are in place of ALUOp
+      op1_ID	 <= op1_ID_w;
+      op2_ID	 <= op2_ID_w;
+
+		//stall signal
 
     end
   end
@@ -289,6 +366,16 @@ module Project(
 			OP2_EQ	 : aluout_EX_r = {31'b0, regval1_ID == regval2_ID};
 			OP2_LT	 : aluout_EX_r = {31'b0, regval1_ID < regval2_ID};
 			// TODO: complete OP2_*...
+			//	OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + regval2_ID};
+			// OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID and regval2_ID};
+			// OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID or regval2_ID};
+			// OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID xor regval2_ID};
+			// OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - regval2_ID};
+			// OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID nand regval2_ID};
+			// OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID nor regval2_ID};
+			// OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID xnor regval2_ID};
+			// OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID sra regval2_ID};
+			// OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID sla regval2_ID};
 	default	 : aluout_EX_r = {DBITS{1'b0}};
       endcase
     else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
@@ -446,5 +533,157 @@ module SXT(IN, OUT);
   output [OBITS-1:0] OUT;
 
   assign OUT = {{(OBITS-IBITS){IN[IBITS-1]}}, IN};
+endmodule
+
+module CONTROL_SIGNAL_GENERATOR(
+  input        [5:0] OPCODE1_IN,
+  input              CLOCK,
+  output reg   [1:0] ALUSRC_OUT,
+  output reg   [1:0] NEWPCSRC_OUT,
+  output reg         MEMWE_OUT,
+  output reg         MEMRE_OUT,
+  output reg         REGWE_OUT,
+  output reg   [1:0] REGWRSRCSEL_OUT,
+  output reg         REGWRDSTSEL_OUT
+);
+
+always @ (*) begin
+  parameter OP1_ALUR = 6'b000000;
+  parameter OP1_BEQ  = 6'b001000;
+  parameter OP1_BLT  = 6'b001001;
+  parameter OP1_BLE  = 6'b001010;
+  parameter OP1_BNE  = 6'b001011;
+  parameter OP1_JAL  = 6'b001100;
+  parameter OP1_LW   = 6'b010010;
+  parameter OP1_SW   = 6'b011010;
+  parameter OP1_ADDI = 6'b100000;
+  parameter OP1_ANDI = 6'b100100;
+  parameter OP1_ORI  = 6'b100101;
+  parameter OP1_XORI = 6'b100110;
+  
+  case (OPCODE1_IN)
+    //EXT instructions
+    //all of the control signals are the same for these types of instructions
+    OP1_ALUR : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+		REGWRDSTSEL_OUT = 1'b1;
+	 end
+		
+	 OP1_BEQ : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+    OP1_BLT : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+		
+	 OP1_BLE : begin
+		ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+	 OP1_BNE : begin
+	   ALUSRC_OUT = 2'b00;
+		NEWPCSRC_OUT = 2'b10;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+    OP1_JAL : begin
+		ALUSRC_OUT = 2'b10;
+		NEWPCSRC_OUT = 2'b01;
+		MEMWE_OUT = 1'b0;
+	   MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b00;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_LW  : begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+	   MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b1;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b01;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_SW  : begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b1;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b0;
+		REGWRSRCSEL_OUT = 2'b00; //don't care, default
+		REGWRDSTSEL_OUT = 1'b0; //don't care, default
+	 end
+	 
+	 OP1_ADDI: begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+	   MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_ANDI: begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+	   REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_ORI : begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+		MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+		REGWRDSTSEL_OUT = 1'b0;
+	 end
+	 
+	 OP1_XORI: begin
+		ALUSRC_OUT = 2'b01;
+		NEWPCSRC_OUT = 2'b00;
+	   MEMWE_OUT = 1'b0;
+		MEMRE_OUT = 1'b0;
+		REGWE_OUT = 1'b1;
+		REGWRSRCSEL_OUT = 2'b10;
+	   REGWRDSTSEL_OUT = 1'b0;
+	 end	
+  endcase		
+end
 endmodule
 
