@@ -497,10 +497,26 @@ module Project(
 
   /*** WRITE BACK STAGE ***/ 
 
-  wire wr_reg_WB_w; 
-  // regs is already declared in the ID stage
+  // Wires
+  wire                 reg_we_WB_w; 
+  wire [1:0]           reg_wr_src_sel_WB_w;
+//  wire [REGNOBITS-1:0] dst_reg_WB_w;
+  wire [DBITS-1:0]     PC_WB_w;
+  wire [DBITS-1:0]     mem_val_out_WB_w;
+  wire [DBITS-1:0]     aluout_WB_w;
 
-  assign wr_reg_WB_w = reg_we_MEM;
+  // Assignments to wires from MEM buffer
+  assign reg_we_WB_w         = reg_we_MEM;
+  assign reg_wr_src_sel_WB_w = reg_wr_src_sel_MEM;
+//  assign dst_reg_WB_w        = dst_reg_MEM;
+  assign PC_WB_w             = PC_MEM;
+  assign mem_val_out_WB_w    = mem_val_out_MEM;
+  assign aluout_WB_w         = aluout_MEM;
+  
+  // Definitions of possible values for RegWrSrcSel
+  parameter WRITE_PC       = 2'b00;
+  parameter WRITE_MEM_DATA = 2'b01;
+  parameter WRITE_ALUOUT   = 2'b10;
   
   always @ (negedge clk or posedge reset) begin
     if(reset) begin
@@ -520,8 +536,12 @@ module Project(
 		regs[13] <= {DBITS{1'b0}};
 		regs[14] <= {DBITS{1'b0}};
 		regs[15] <= {DBITS{1'b0}};
-	 end else if(wr_reg_WB_w) begin
-      regs[wregno_MEM] <= aluout_MEM;
+	 end
+	 else if(reg_we_WB_w) begin
+//	   case (reg_wr_src_sel_WB_w)
+//		  WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w;
+//		  WRITE_MEM_DATA: regs[dst_reg_WB_w] <= mem_val_out_WB_w;
+//		  WRITE_ALUOUT:   regs[dst_reg_WB_w] <= aluout_WB_w;
 	 end
   end
   
