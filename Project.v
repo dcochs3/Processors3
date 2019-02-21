@@ -128,10 +128,10 @@ module Project(
     else if(!stall_pipe)
       PC_FE <= PC_FE;              // If stalling, ???
     else
-	   case(new_pc_src_ID_w & branch_logic_out)
+	   case(new_pc_src_EX_r & branch_logic_out)
 		  TAKE_INCR_PC: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
 		  TAKE_JAL_PC:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
-//		  TAKE_BR_PC:   PC_FE <= sxt_addr_out;       // Take PC + sxtImm from EX stage
+		  TAKE_BR_PC:   PC_FE <= sxt_addr_out_EX_r;  // Take PC + sxtImm from EX stage
       endcase
   end
 
@@ -145,27 +145,29 @@ module Project(
 
 
   //*** DECODE STAGE ***//
-  wire [OP1BITS-1:0] op1_ID_w;
-  wire [OP2BITS-1:0] op2_ID_w;
-  wire [IMMBITS-1:0] imm_ID_w;
+  
+  /* Wires */
+  
+  // General Wires
+  wire [DBITS-1:0]     PC_ID_w;
+  wire [OP1BITS-1:0]   op1_ID_w;
+  wire [OP2BITS-1:0]   op2_ID_w;
+  wire [IMMBITS-1:0]   imm_ID_w;
   wire [REGNOBITS-1:0] rd_ID_w;
   wire [REGNOBITS-1:0] rs_ID_w;
   wire [REGNOBITS-1:0] rt_ID_w;
-  // Two read ports, always using rs and rt for register numbers
-  wire [DBITS-1:0] regval1_ID_w;
-  wire [DBITS-1:0] regval2_ID_w;
-  wire [DBITS-1:0] sxt_imm_ID_w;
-  wire is_br_ID_w;
-  wire is_jmp_ID_w;
-  wire rd_mem_ID_w;
-  wire wr_mem_ID_w;
-  wire wr_reg_ID_w;
-  wire [4:0] ctrlsig_ID_w;
+  wire [DBITS-1:0]     regval1_ID_w;
+  wire [DBITS-1:0]     regval2_ID_w;
+  wire [DBITS-1:0]     sxt_imm_ID_w;
+  wire                 rd_mem_ID_w;
+  wire                 wr_mem_ID_w;
+  wire                 wr_reg_ID_w;
+  wire [4:0]           ctrlsig_ID_w;
   wire [REGNOBITS-1:0] wregno_ID_w;
-  wire wr_reg_EX_w;
-  wire wr_reg_MEM_w;
+  wire                 wr_reg_EX_w;
+  wire                 wr_reg_MEM_w;
   
-  //control signal wires
+  // Control Signal Wires
   wire [1:0] alu_src_ID_w;
   wire [1:0] new_pc_src_ID_w;
   wire [0:0] mem_we_ID_w;
@@ -174,51 +176,53 @@ module Project(
   wire [1:0] reg_wr_src_sel_ID_w;
   wire [0:0] reg_wr_dst_sel_ID_w; 
   
-  // Register file
-  reg [DBITS-1:0] PC_ID;
-  reg [DBITS-1:0] regs [REGWORDS-1:0];
+  
+  /* Registers */
+  
+  // Register File
+  reg [DBITS-1:0]        PC_ID;
+  reg [DBITS-1:0]        regs [REGWORDS-1:0];
   reg signed [DBITS-1:0] regval1_ID;
   reg signed [DBITS-1:0] regval2_ID;
   reg signed [DBITS-1:0] immval_ID;
-  reg [OP1BITS-1:0] op1_ID;
-  reg [OP2BITS-1:0] op2_ID;
-  reg [4:0] ctrlsig_ID;
-  reg [REGNOBITS-1:0] wregno_ID;
-  // Declared here for stall check
-  reg [REGNOBITS-1:0] wregno_EX;
-  reg [REGNOBITS-1:0] wregno_MEM;
-  reg [INSTBITS-1:0] inst_ID;
+  reg [OP1BITS-1:0]      op1_ID;
+  reg [OP2BITS-1:0]      op2_ID;
+  reg [REGNOBITS-1:0]    wregno_ID;
   
-  //Buffer Registers
-  reg [DBITS-1:0] sxt_imm_ID;
+  // Buffer Registers
+  reg [DBITS-1:0]     sxt_imm_ID;
   reg [REGNOBITS-1:0] rt_spec_ID;
   reg [REGNOBITS-1:0] rd_spec_ID; //RdSpec
-  //Control signals
-  reg [1:0] alu_src_ID; //ALUSrc (2 bits)
-  reg [1:0] new_pc_src_ID; //NewPCSrc (2 bits)
-  reg [0:0] mem_we_ID; //MemWE (1 bit)
-  reg [0:0] mem_re_ID; //MemRE (1 bit)
-  reg [0:0] reg_we_ID; //RegWE (1 bit)
+  
+  // Control Signals
+  reg [1:0] alu_src_ID;        //ALUSrc (2 bits)
+  reg [1:0] new_pc_src_ID;     //NewPCSrc (2 bits)
+  reg [0:0] mem_we_ID;         //MemWE (1 bit)
+  reg [0:0] mem_re_ID;         //MemRE (1 bit)
+  reg [0:0] reg_we_ID;         //RegWE (1 bit)
   reg [1:0] reg_wr_src_sel_ID; //RegWrSrcSel (2 bits)
   reg [0:0] reg_wr_dst_sel_ID; //RegWrDstSel (1 bit)
  
 
-  // TODO: Specify signals such as op*_ID_w, imm_ID_w, r*_ID_w
+  /* Assignments to Wires */
+  
+  // Data from FETCH Buffer
+  assign PC_ID_w  = PC_FE;
   assign op1_ID_w = inst_FE[31:26];
   assign op2_ID_w = inst_FE[25:18];
-  assign rd_ID_w = inst_FE[11:8];
-  assign rt_ID_w = inst_FE[3:0];
-  assign rs_ID_w = inst_FE[7:4];
+  assign rd_ID_w  = inst_FE[11:8];
+  assign rt_ID_w  = inst_FE[3:0];
+  assign rs_ID_w  = inst_FE[7:4];
   assign imm_ID_w = inst_FE[23:8];
 
-  // Read register values
+  // Read Register Values
   assign regval1_ID_w = regs[rs_ID_w];
   assign regval2_ID_w = regs[rt_ID_w];
 
-  // Sign extension
+  // Sign Extender
   SXT mysxt (.IN(imm_ID_w), .OUT(sxt_imm_ID_w));
   
-  // Control signal generator
+  // Control Signal Generator
   CONTROL_SIGNAL_GENERATOR control_signal_generator_inst(
     .OPCODE1_IN(op1_ID_w),
 	 .CLOCK(clk),
@@ -230,77 +234,42 @@ module Project(
 	 .REGWRSRCSEL_OUT(reg_wr_src_sel_ID_w),
 	 .REGWRDSTSEL_OUT(reg_wr_dst_sel_ID_w)
   );
-
-  // TODO: Specify control signals such as is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, etc.
-  // You may add or change control signals if needed
-  // assign is_br_ID_w = ... ;
-  // ...
   
-// Set the control signal wires
-//	alu_src:
-//		2b'00 Rt contents
-//		2b'01 sxtImm
-//		2b'10	sxtImm x 4
-//	new_pc_src:
-//		2b'00	PC + 4
-//		2b'01	JAL PC
-//		2b'10	BR PC
-//	mem_we:
-//		1b'0	writing to mem NOT enabled
-//		1b'1	writing to mem ENABLED
-//	mem_re:
-//		1b'0	reading from mem NOT enabled
-//		1b'1	reading from mem ENABLED
-//	reg_we:
-//		1b'0	writing to regs NOT enabled
-//		1b'1	writing to regs ENABLED
-//	reg_wr_src_sel
-//		2b'00	PC
-//		2b'01	Mem data
-//		2b'10	ALU Result
-//	reg_wr_dst_sel
-//		1b'0	Rt specifier
-//		1b'1	Rd specifier
-   
-  
-  assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
   
   // TODO: Specify stall condition
   // assign stall_pipe = ... ;
 
-  // ID_latch
+  
+  // ID Buffer
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-      PC_ID	 <= {DBITS{1'b0}};
-		inst_ID	 <= {INSTBITS{1'b0}};
-      op1_ID	 <= {OP1BITS{1'b0}};
-      op2_ID	 <= {OP2BITS{1'b0}};
-      regval1_ID  <= {DBITS{1'b0}};
-      regval2_ID  <= {DBITS{1'b0}};
-      wregno_ID	 <= {REGNOBITS{1'b0}};
-      ctrlsig_ID <= 5'h0;
-    end else begin
-	   // TODO: Specify ID latches
-      PC_ID	 <= PC_FE; //PC
-		rt_spec_ID <= rt_ID_w; //RtSpec
-		regval2_ID <= regval2_ID_w; //RtCont
-		regval1_ID <= regval1_ID_w; //RsCont
-		sxt_imm_ID <= sxt_imm_ID_w; //sxtImm
-		
-		rd_spec_ID <= rd_ID_w; //RdSpec
-		alu_src_ID <= alu_src_ID_w; //ALUSrc
-		new_pc_src_ID <= new_pc_src_ID_w; //NewPCSrc
-		mem_we_ID <= mem_we_ID_w; //MemWE
-		mem_re_ID <= mem_re_ID_w; //MemRE
-		reg_we_ID <= reg_we_ID_w; //RegWE
+      PC_ID	     <= {DBITS{1'b0}};
+      op1_ID	  <= {OP1BITS{1'b0}};
+      op2_ID	  <= {OP2BITS{1'b0}};
+      regval1_ID <= {DBITS{1'b0}};
+      regval2_ID <= {DBITS{1'b0}};
+      wregno_ID  <= {REGNOBITS{1'b0}};
+    end 
+	 else begin
+      PC_ID	            <= PC_ID_w;             //PC
+		rt_spec_ID        <= rt_ID_w;             //RtSpec
+		regval2_ID        <= regval2_ID_w;        //RtCont
+		regval1_ID        <= regval1_ID_w;        //RsCont
+		sxt_imm_ID        <= sxt_imm_ID_w;        //sxtImm
+		rd_spec_ID        <= rd_ID_w;             //RdSpec
+		alu_src_ID        <= alu_src_ID_w;        //ALUSrc
+		new_pc_src_ID     <= new_pc_src_ID_w;     //NewPCSrc
+		mem_we_ID         <= mem_we_ID_w;         //MemWE
+		mem_re_ID         <= mem_re_ID_w;         //MemRE
+		reg_we_ID         <= reg_we_ID_w;         //RegWE
 		reg_wr_src_sel_ID <= reg_wr_src_sel_ID_w; //RegWrSrcSel
 		reg_wr_dst_sel_ID <= reg_wr_dst_sel_ID_w; //RegWrDstSel
 		
-		//these are in place of ALUOp
-      op1_ID	 <= op1_ID_w;
-      op2_ID	 <= op2_ID_w;
+		// These are in place of ALUOp
+      op1_ID	         <= op1_ID_w;
+      op2_ID	         <= op2_ID_w;
 
-		//stall signal
+		// TODO: Stall Signal
 
     end
   end
@@ -405,10 +374,6 @@ module Project(
 	 else
       aluout_EX_r = {DBITS{1'b0}};
   end
-
-  assign is_br_EX_w = ctrlsig_ID[4];
-  assign is_jmp_EX_w = ctrlsig_ID[3];
-  assign wr_reg_EX_w = ctrlsig_ID[0];
   
   // TODO: Specify signals such as mispred_EX_w, pcgood_EX_w
   // assign mispred_EX_w = ... ;
@@ -419,7 +384,6 @@ module Project(
     if(reset) begin
 	   inst_EX	 <= {INSTBITS{1'b0}};
       aluout_EX	 <= {DBITS{1'b0}};
-      wregno_EX	 <= {REGNOBITS{1'b0}};
       ctrlsig_EX <= 3'h0;
 		regval2_EX	<= {DBITS{1'b0}};
     end else begin
