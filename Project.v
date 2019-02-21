@@ -153,10 +153,10 @@ module Project(
     else if(!stall_pipe)
       PC_FE <= pcpred_FE;          // If stalling, ???
     else
-	   case(new_pc_src_ID_w & branch_logic_out)
+	   case(new_pc_src_EX_r & branch_logic_out)
 		  take_pcplus: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
 		  take_jalpc:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
-//		  take_brpc:   PC_FE <= sxt_addr_out;       // Take PC + sxtImm from EX stage
+		  take_brpc:   PC_FE <= sxt_addr_out_EX_r;       // Take PC + sxtImm from EX stage
       endcase
   end
 
@@ -352,8 +352,13 @@ module Project(
     
    //my wires and registers
 	//wire [DBITS-1:0] alu_result_EX_w; //ALU Result
-	wire [DBITS-1:0] alu_in_EX_w; //ALU input (from mux)
-	wire [REGNOBITS-1:0] dst_reg_EX_w; //DstReg
+	reg [DBITS-1:0] alu_in_EX_r; //ALU input (from mux)
+	reg [REGNOBITS-1:0] dst_reg_EX_r; //DstReg
+	reg [DBITS-1:0] sxt_imm_4_r; //sxtImm x 4
+	
+	reg [DBITS-1:0] new_pc_src_EX_r;
+	reg [DBITS-1:0] sxt_addr_out_EX_r;
+	
 	reg [DBITS-1:0] PC_EX; //PC
 	//reg [DBITS-1:0] alu_result_EX; //ALUResult
 	reg [REGNOBITS-1:0] dst_reg_EX; //DstReg
@@ -361,13 +366,40 @@ module Project(
 	reg [0:0] mem_re_EX; //MemRE (1 bit)
 	reg [0:0] reg_we_EX; //RegWE (1 bit)
 	reg [1:0] reg_wr_src_sel_EX; //RegWrSrcSel (2 bits)
+	
+	always @ (*) begin
+		new_pc_src_EX_r = new_pc_src_ID;
+	end
+	
+	always @ (*) begin
+		//shift left 2 bits with 0s
+		sxt_imm_4_r = sxt_imm_ID << 2;
+	
+		//set dst_reg_EX_r
+		if (reg_wr_dst_sel_ID == 0)
+			dst_reg_EX_r = rt_spec_ID; //RtSpec		
+		else
+			dst_reg_EX_r = rd_spec_ID; //RdSpec
+			
+		//set alu's 2nd input (alu_in_EX_r)
+		if (alu_src_ID == 00)
+			alu_in_EX_r = regval2_ID; //take RtCont
+		else if (alu_src_ID == 01)
+			alu_in_EX_r = sxt_imm_ID; //take sxtImm
+		else 
+			alu_in_EX_r = sxt_imm_4_r; //take sxtImm x 4
+			
+		//set PC increment
+		sxt_addr_out_EX_r = {31'b0, PC_ID + sxt_imm_4_r}; 
+			
+	end	
 
   always @ (op1_ID or regval1_ID or regval2_ID) begin
     case (op1_ID)
-      OP1_BEQ : br_cond_EX = (regval1_ID == regval2_ID);
-      OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
-      OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
-      OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
+      OP1_BEQ : br_cond_EX = (regval1_ID == alu_in_EX_r);
+      OP1_BLT : br_cond_EX = (regval1_ID < alu_in_EX_r);
+      OP1_BLE : br_cond_EX = (regval1_ID <= alu_in_EX_r);
+      OP1_BNE : br_cond_EX = (regval1_ID != alu_in_EX_r);
       default : br_cond_EX = 1'b0;
     endcase
   end
@@ -375,30 +407,32 @@ module Project(
   always @ (op1_ID or op2_ID or regval1_ID or regval2_ID or immval_ID) begin
     if(op1_ID == OP1_ALUR)
       case (op2_ID)
-			OP2_EQ	 : aluout_EX_r = {31'b0, regval1_ID == regval2_ID};
-			OP2_LT	 : aluout_EX_r = {31'b0, regval1_ID < regval2_ID};
-			// TODO: complete OP2_*...
-			//	OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + regval2_ID};
-			// OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID and regval2_ID};
-			// OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID or regval2_ID};
-			// OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID xor regval2_ID};
-			// OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - regval2_ID};
-			// OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID nand regval2_ID};
-			// OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID nor regval2_ID};
-			// OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID xnor regval2_ID};
-			// OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID sra regval2_ID};
-			// OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID sla regval2_ID};
+			OP2_EQ	 : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
+			OP2_LT	 : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
+			OP2_LE	 : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
+			OP2_NE	 : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
+
+			OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + alu_in_EX_r};
+			OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID & alu_in_EX_r};
+			OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID | alu_in_EX_r};
+			OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID ^ alu_in_EX_r}; //xor
+			OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - alu_in_EX_r};
+			//OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID ~& alu_in_EX_r}; //nand
+			//OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID ~| alu_in_EX_r}; //nor
+			OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID ~^ alu_in_EX_r}; //xnor
+			OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID >>> alu_in_EX_r}; //arithmetic shift
+			OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID <<< alu_in_EX_r}; //arithmetic shift
 	default	 : aluout_EX_r = {DBITS{1'b0}};
       endcase
-    else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
-      aluout_EX_r = regval1_ID + immval_ID;
+    else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI || op1_ID == OP1_JAL)
+      aluout_EX_r = regval1_ID + alu_in_EX_r;
     else if(op1_ID == OP1_ANDI)
-      aluout_EX_r = regval1_ID & immval_ID;
+      aluout_EX_r = regval1_ID & alu_in_EX_r;
     else if(op1_ID == OP1_ORI)
-      aluout_EX_r = regval1_ID | immval_ID;
+      aluout_EX_r = regval1_ID | alu_in_EX_r;
     else if(op1_ID == OP1_XORI)
-      aluout_EX_r = regval1_ID ^ immval_ID;
-    else
+      aluout_EX_r = regval1_ID ^ alu_in_EX_r;
+	 else
       aluout_EX_r = {DBITS{1'b0}};
   end
 
@@ -421,8 +455,15 @@ module Project(
 		pcgood_EX  <= {DBITS{1'b0}};
 		regval2_EX	<= {DBITS{1'b0}};
     end else begin
-		// TODO: Specify EX latches
-		// ...
+		// TODO: Specify EX latches	
+		PC_EX <= PC_ID; //PC
+		regval2_EX <= regval2_ID; //RtCont
+		aluout_EX <= aluout_EX_r; //ALUResult
+		dst_reg_EX <= dst_reg_EX_r; //DstReg
+		mem_we_EX <= mem_we_ID; //MemWE
+		mem_re_EX <= mem_re_ID; //MemRE
+		reg_we_EX <= reg_we_ID; //RegWE
+		reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
     end
   end
   
