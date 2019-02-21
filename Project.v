@@ -91,85 +91,55 @@ module Project(
 
 
   //*** FETCH STAGE ***//
-  // The PC register and update logic
-  wire [DBITS-1:0] pcplus_FE;
-  wire [DBITS-1:0] pcpred_FE;
-  wire [DBITS-1:0] inst_FE_w;
-  wire stall_pipe;
-  wire mispred_EX_w;
   
-  reg [DBITS-1:0] pcgood_EX;
-  reg [DBITS-1:0] PC_FE;
+  // Wires
+  wire [DBITS-1:0]   inst_FE_w;
+  wire               stall_pipe;
+  
+  // Registers
+  reg [DBITS-1:0]    PC_FE;       // The PC that goes in the FETCH buffer
   reg [INSTBITS-1:0] inst_FE;
   
   // I-MEM
   (* ram_init_file = IMEMINITFILE *)
-  reg [DBITS-1:0] imem [IMEMWORDS-1:0];
-  reg mispred_EX;
-  
-  // Constants relevant to FETCH stage
-  parameter take_pcplus = 2'b00;
-  parameter take_jalpc = 2'b01;
-  parameter take_brpc = 2'b11;
-  
-  assign stall_pipe = 1'b1;
-  
-  // Display part of PC on sevenseg
-  reg[31:0] counter;
-  `define ONE_SECOND							32'd50000000
-  
-  always @ (posedge clk or posedge reset) begin
-    if (reset)
-	   counter <= 32'b0;
-	 else
-	   if (counter >= `ONE_SECOND)
-		  begin
-          HEX_out[3:0] = PC_FE[3:0];
-	       HEX_out[7:4] = PC_FE[7:4];
-	       HEX_out[11:8] = PC_FE[11:8];
-	       HEX_out[15:12] = PC_FE[15:12];
-	       HEX_out[19:16] = PC_FE[19:16];
-	       HEX_out[23:20] = PC_FE[23:20];
-			 counter <= 32'b0;
-		  end
-		else
-		  counter <= counter + 1;
-  end
+  reg [DBITS-1:0]    imem [IMEMWORDS-1:0];
   
   // This statement is used to initialize the I-MEM
   // during simulation using Model-Sim
   //initial begin
   //  $readmemh("test.hex", imem);
   //end
+ 
+  // Constants
+  parameter TAKE_INCR_PC = 2'b00;
+  parameter TAKE_JAL_PC  = 2'b01;
+  parameter TAKE_BR_PC    = 2'b11;
+  
+  // Temporary
+  assign stall_pipe = 1'b1;
     
+  // Assignments to wires
   assign inst_FE_w = imem[PC_FE[IMEMADDRBITS-1:IMEMWORDBITS]];
   
   // Select a PC value
   always @ (posedge clk or posedge reset) begin
     if(reset)
 	   PC_FE <= STARTPC;            // Set PC to initial value after a reset
- //   else if(mispred_EX)
- //     PC_FE <= pcgood_EX;          // Used to set PC in case of branch misprediction
     else if(!stall_pipe)
-      PC_FE <= pcpred_FE;          // If stalling, ???
+      PC_FE <= PC_FE;              // If stalling, ???
     else
 	   case(new_pc_src_ID_w & branch_logic_out)
-		  take_pcplus: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
-		  take_jalpc:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
-//		  take_brpc:   PC_FE <= sxt_addr_out;       // Take PC + sxtImm from EX stage
+		  TAKE_INCR_PC: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
+		  TAKE_JAL_PC:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
+//		  TAKE_BR_PC:   PC_FE <= sxt_addr_out;       // Take PC + sxtImm from EX stage
       endcase
   end
 
-  // This is the value of "incremented PC", computed in the FE stage
-  assign pcplus_FE = PC_FE + INSTSIZE;
-  // This is the predicted value of the PC that we use to fetch the next instruction
-  assign pcpred_FE = pcplus_FE;
-
-  // FE_latch
+  // FETCH buffer
   always @ (posedge clk or posedge reset) begin
     if(reset)
       inst_FE <= {INSTBITS{1'b0}};
-    else if(stall_pipe)        // Only change the register contents if stall signal is 1 (= not stalling)
+    else if(stall_pipe)        // Only change the register contents if stall signal is 1 (1 means *not* stalling)
       inst_FE <= inst_FE_w;    // Don't need to worry about branch prediction (yet)
   end
 
@@ -417,8 +387,6 @@ module Project(
       aluout_EX	 <= {DBITS{1'b0}};
       wregno_EX	 <= {REGNOBITS{1'b0}};
       ctrlsig_EX <= 3'h0;
-      mispred_EX <= 1'b0;
-		pcgood_EX  <= {DBITS{1'b0}};
 		regval2_EX	<= {DBITS{1'b0}};
     end else begin
 		// TODO: Specify EX latches
