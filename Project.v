@@ -348,7 +348,19 @@ module Project(
   // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
   reg signed [DBITS-1:0] aluout_EX_r;
   reg [DBITS-1:0] aluout_EX;
-  reg [DBITS-1:0] regval2_EX;
+  reg [DBITS-1:0] regval2_EX; //RtCont
+    
+   //my wires and registers
+	//wire [DBITS-1:0] alu_result_EX_w; //ALU Result
+	wire [DBITS-1:0] alu_in_EX_w; //ALU input (from mux)
+	wire [REGNOBITS-1:0] dst_reg_EX_w; //DstReg
+	reg [DBITS-1:0] PC_EX; //PC
+	//reg [DBITS-1:0] alu_result_EX; //ALUResult
+	reg [REGNOBITS-1:0] dst_reg_EX; //DstReg
+	reg [0:0] mem_we_EX; //MemWE (1 bit)
+	reg [0:0] mem_re_EX; //MemRE (1 bit)
+	reg [0:0] reg_we_EX; //RegWE (1 bit)
+	reg [1:0] reg_wr_src_sel_EX; //RegWrSrcSel (2 bits)
 
   always @ (op1_ID or regval1_ID or regval2_ID) begin
     case (op1_ID)
@@ -417,44 +429,68 @@ module Project(
 
   //*** MEM STAGE ***//
 
-  wire rd_mem_MEM_w;
-  wire wr_mem_MEM_w;
+//  wire rd_mem_MEM_w;
+//  wire wr_mem_MEM_w;
   
-  wire [DBITS-1:0] memaddr_MEM_w;
-  wire [DBITS-1:0] rd_val_MEM_w;
+  wire [DBITS-1:0] PC_MEM_w;
+  wire [DBITS-1:0] mem_addr_MEM_w;
+  wire [DBITS-1:0] mem_val_out_MEM_w;
+  wire mem_we_MEM_w;
+  wire mem_re_MEM_w;
+  wire rt_cont_MEM_w;
+  wire [DBITS-1:0] aluout_MEM_w;
+  wire [REGNOBITS-1:0] dst_reg_MEM_w;
+  wire reg_we_MEM_w;
+  wire [1:0] reg_wr_src_sel_MEM_w;
 
-  reg [INSTBITS-1:0] inst_MEM; /* This is for debugging */
-  reg [DBITS-1:0] regval_MEM;  
-  reg ctrlsig_MEM;
+  reg [INSTBITS-1:0] inst_MEM; /* This is for debugging */ 
+  reg [DBITS-1:0] PC_MEM;
+  reg [DBITS-1:0] mem_val_out_MEM;
+  reg [DBITS-1:0] aluout_MEM;
+  reg [REGNOBITS-1:0] dst_reg_MEM;
+  reg reg_we_MEM;
+  reg [1:0] reg_wr_src_sel_MEM;
+//  reg ctrlsig_MEM;
+  
   // D-MEM
   (* ram_init_file = IMEMINITFILE *)
   reg [DBITS-1:0] dmem[DMEMWORDS-1:0];
-
-  assign memaddr_MEM_w = aluout_EX;
-  assign rd_mem_MEM_w = ctrlsig_EX[2];
-  assign wr_mem_MEM_w = ctrlsig_EX[1];
-  assign wr_reg_MEM_w = ctrlsig_EX[0];
+  
+  assign PC_MEM_w = PC_EX;
+  
+  assign mem_addr_MEM_w = aluout_EX;
+  assign mem_we_MEM_w = mem_we_EX;
+  assign mem_re_MEM_w = mem_re_EX;
+  assign reg_we_MEM_w = reg_we_EX;
+  assign reg_wr_src_sel_MEM_w = reg_wr_src_sel_EX;
+//  assign rt_cont_MEM_w = 
+//  assign dst_reg_MEM_w = 
+  
   // Read from D-MEM
-  assign rd_val_MEM_w = (memaddr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
-									dmem[memaddr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
+  assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+									dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
   // Write to D-MEM
   always @ (posedge clk) begin
-    if(wr_mem_MEM_w)
-      dmem[memaddr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]] <= regval2_EX;
+    if(mem_we_MEM_w)
+      dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]] <= regval2_EX;
   end
 
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-	   inst_MEM		<= {INSTBITS{1'b0}};
-      regval_MEM  <= {DBITS{1'b0}};
-      wregno_MEM  <= {REGNOBITS{1'b0}};
-      ctrlsig_MEM <= 1'b0;
+	   PC_MEM		       <= {DBITS{1'b0}};
+		mem_val_out_MEM    <= {DBITS{1'b0}};
+      aluout_MEM         <= {DBITS{1'b0}};
+		dst_reg_MEM        <= {REGNOBITS{1'b0}};
+      reg_we_MEM         <= {2{1'b0}};
+      reg_wr_src_sel_MEM <= {2{1'b0}};
     end else begin
-		inst_MEM		<= inst_EX;
-      regval_MEM  <= rd_mem_MEM_w ? rd_val_MEM_w : aluout_EX;
-      wregno_MEM  <= wregno_EX;
-      ctrlsig_MEM <= ctrlsig_EX[0];
+		PC_MEM		       <= PC_MEM_w;
+		mem_val_out_MEM    <= mem_val_out_MEM_w;
+      aluout_MEM         <= aluout_MEM_w;
+//		dst_reg_MEM        <= 
+      reg_we_MEM         <= reg_we_MEM_w;
+      reg_wr_src_sel_MEM <= reg_wr_src_sel_MEM_w;
     end
   end
 
@@ -464,7 +500,7 @@ module Project(
   wire wr_reg_WB_w; 
   // regs is already declared in the ID stage
 
-  assign wr_reg_WB_w = ctrlsig_MEM;
+  assign wr_reg_WB_w = reg_we_MEM;
   
   always @ (negedge clk or posedge reset) begin
     if(reset) begin
@@ -485,7 +521,7 @@ module Project(
 		regs[14] <= {DBITS{1'b0}};
 		regs[15] <= {DBITS{1'b0}};
 	 end else if(wr_reg_WB_w) begin
-      regs[wregno_MEM] <= regval_MEM;
+      regs[wregno_MEM] <= aluout_MEM;
 	 end
   end
   
@@ -510,7 +546,7 @@ module Project(
 //  always @ (posedge clk or posedge reset) begin
 //    if(reset)
 //	   HEX_out <= 24'hFEDEAD;
-//	 else if(wr_mem_MEM_w && (memaddr_MEM_w == ADDRHEX))
+//	 else if(wr_mem_MEM_w && (mem_addr_MEM_w == ADDRHEX))
 //      HEX_out <= regval2_EX[HEXBITS-1:0];
 //  end
 
@@ -686,4 +722,3 @@ always @ (*) begin
   endcase		
 end
 endmodule
-
