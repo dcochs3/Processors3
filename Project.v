@@ -299,6 +299,8 @@ module Project(
         op2_ID            <= op2_ID_w;
 
         // TODO: Stall Signal
+        
+        // TODO: Flush Signal
 
     end
   end
@@ -317,22 +319,22 @@ module Project(
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
     reg signed [DBITS-1:0] aluout_EX_r;
     reg [DBITS-1:0] aluout_EX;
-    reg [DBITS-1:0] regval2_EX; //RtCont
+    reg [DBITS-1:0] regval2_EX;       //RtCont
     
     //my wires and registers
-    reg [DBITS-1:0] alu_in_EX_r; //ALU input (from mux)
+    reg [DBITS-1:0] alu_in_EX_r;      //ALU input (from mux)
     reg [REGNOBITS-1:0] dst_reg_EX_r; //DstReg
-    reg [DBITS-1:0] sxt_imm_4_r; //sxtImm x 4
+    reg [DBITS-1:0] sxt_imm_4_r;      //sxtImm x 4
     
     reg [DBITS-1:0] new_pc_src_EX_r;
     reg [DBITS-1:0] sxt_addr_out_EX_r;
     
-    reg [DBITS-1:0] PC_EX; //PC
-    reg [REGNOBITS-1:0] dst_reg_EX; //DstReg
-    reg [0:0] mem_we_EX; //MemWE (1 bit)
-    reg [0:0] mem_re_EX; //MemRE (1 bit)
-    reg [0:0] reg_we_EX; //RegWE (1 bit)
-    reg [1:0] reg_wr_src_sel_EX; //RegWrSrcSel (2 bits)
+    reg [DBITS-1:0] PC_EX;            //PC
+    reg [REGNOBITS-1:0] dst_reg_EX;   //DstReg
+    reg [0:0] mem_we_EX;              //MemWE (1 bit)
+    reg [0:0] mem_re_EX;              //MemRE (1 bit)
+    reg [0:0] reg_we_EX;              //RegWE (1 bit)
+    reg [1:0] reg_wr_src_sel_EX;      //RegWrSrcSel (2 bits)
     
     always @ (*) begin
         new_pc_src_EX_r = new_pc_src_ID;
@@ -350,9 +352,9 @@ module Project(
             
         //set alu's 2nd input (alu_in_EX_r)
         if (alu_src_ID == take_rtcont)
-            alu_in_EX_r = regval2_ID; //take RtCont
+            alu_in_EX_r = regval2_ID;  //take RtCont
         else if (alu_src_ID == take_sxtimm)
-            alu_in_EX_r = sxt_imm_ID; //take sxtImm
+            alu_in_EX_r = sxt_imm_ID;  //take sxtImm
         else if (alu_src_ID == take_sxtimm_4)
             alu_in_EX_r = sxt_imm_4_r; //take sxtImm x 4
             
@@ -400,26 +402,23 @@ module Project(
         aluout_EX_r = {DBITS{1'b0}};
   end
   
-  // TODO: Specify signals such as mispred_EX_w, pcgood_EX_w
-  // assign mispred_EX_w = ... ;
-  // assign pcgood_EX_w = ... ;
-
-  // EX_latch
+  // EX Buffer
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
         aluout_EX     <= {DBITS{1'b0}};
         regval2_EX    <= {DBITS{1'b0}};
     end else begin
-        // TODO: Specify EX latches
-        PC_EX <= PC_ID; //PC
-        regval2_EX <= regval2_ID; //RtCont
-        aluout_EX <= aluout_EX_r; //ALUResult
-        dst_reg_EX <= dst_reg_EX_r; //DstReg
-        mem_we_EX <= mem_we_ID; //MemWE
-        mem_re_EX <= mem_re_ID; //MemRE
-        reg_we_EX <= reg_we_ID; //RegWE
+        PC_EX <= PC_ID;                         //PC
+        regval2_EX <= regval2_ID;               //RtCont
+        aluout_EX <= aluout_EX_r;               //ALUResult
+        dst_reg_EX <= dst_reg_EX_r;             //DstReg
+        mem_we_EX <= mem_we_ID;                 //MemWE
+        mem_re_EX <= mem_re_ID;                 //MemRE
+        reg_we_EX <= reg_we_ID;                 //RegWE
         reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
     end
+    
+    // TODO: Stall Signal Handling
 end
   
 
@@ -552,7 +551,6 @@ end
     reg[0:0] flush_logic_out;
 
     //if opcode is a branch or JAL
-    //do something special
     always @ (*) begin
         aluout_EX_r_1bit = aluout_EX_r[0:0];
         //if the instruction is a branch & if the branch condition is true or not
@@ -571,7 +569,14 @@ end
         //or it with take_branch_sxt
         branch_logic_out = ({~is_jal, ~is_jal} | take_branch_sxt);
     end
-   
+	 
+  /*** Stall Logic ***/
+  
+  //stall for branch and jal
+  parameter is_branch_or_jal = 3'b001;
+  wire [0:0] branch_or_jal_stall;
+  assign branch_or_jal_stall = ~(op1_ID[5:3] == is_branch_or_jal);
+
 
   /*** I/O ***/
   // Create and connect HEX register
