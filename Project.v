@@ -337,6 +337,13 @@ module Project(
 
 
   //*** AGEN/EXEC STAGE ***//
+  
+  // Constants relevant to EXECUTE stage
+  parameter take_rtspec = 1'b0;
+  parameter take_rdspec = 1'b1;
+  parameter take_rtcont = 2'b00;
+  parameter take_sxtimm = 2'b01;
+  parameter take_sxtimm_4 = 2'b10;
 
   wire is_br_EX_w;
   wire is_jmp_EX_w;
@@ -351,7 +358,6 @@ module Project(
   reg [DBITS-1:0] regval2_EX; //RtCont
     
    //my wires and registers
-	//wire [DBITS-1:0] alu_result_EX_w; //ALU Result
 	reg [DBITS-1:0] alu_in_EX_r; //ALU input (from mux)
 	reg [REGNOBITS-1:0] dst_reg_EX_r; //DstReg
 	reg [DBITS-1:0] sxt_imm_4_r; //sxtImm x 4
@@ -360,7 +366,6 @@ module Project(
 	reg [DBITS-1:0] sxt_addr_out_EX_r;
 	
 	reg [DBITS-1:0] PC_EX; //PC
-	//reg [DBITS-1:0] alu_result_EX; //ALUResult
 	reg [REGNOBITS-1:0] dst_reg_EX; //DstReg
 	reg [0:0] mem_we_EX; //MemWE (1 bit)
 	reg [0:0] mem_re_EX; //MemRE (1 bit)
@@ -376,35 +381,32 @@ module Project(
 		sxt_imm_4_r = sxt_imm_ID << 2;
 	
 		//set dst_reg_EX_r
-		if (reg_wr_dst_sel_ID == 0)
+		if (reg_wr_dst_sel_ID == take_rtspec)
 			dst_reg_EX_r = rt_spec_ID; //RtSpec		
-		else
+		else if (reg_wr_dst_sel_ID == take_rdspec)
 			dst_reg_EX_r = rd_spec_ID; //RdSpec
 			
 		//set alu's 2nd input (alu_in_EX_r)
-		if (alu_src_ID == 00)
+		if (alu_src_ID == take_rtcont)
 			alu_in_EX_r = regval2_ID; //take RtCont
-		else if (alu_src_ID == 01)
+		else if (alu_src_ID == take_sxtimm)
 			alu_in_EX_r = sxt_imm_ID; //take sxtImm
-		else 
+		else if (alu_src_ID == take_sxtimm_4)
 			alu_in_EX_r = sxt_imm_4_r; //take sxtImm x 4
 			
 		//set PC increment
-		sxt_addr_out_EX_r = {31'b0, PC_ID + sxt_imm_4_r}; 
+		sxt_addr_out_EX_r = (PC_ID + sxt_imm_4_r); 
 			
 	end	
 
-  always @ (op1_ID or regval1_ID or regval2_ID) begin
-    case (op1_ID)
-      OP1_BEQ : br_cond_EX = (regval1_ID == alu_in_EX_r);
-      OP1_BLT : br_cond_EX = (regval1_ID < alu_in_EX_r);
-      OP1_BLE : br_cond_EX = (regval1_ID <= alu_in_EX_r);
-      OP1_BNE : br_cond_EX = (regval1_ID != alu_in_EX_r);
-      default : br_cond_EX = 1'b0;
+  always @ (op1_ID or op2_ID or regval1_ID or alu_in_EX_r) begin
+	 case (op1_ID)
+      OP1_BEQ : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
+      OP1_BLT : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
+      OP1_BLE : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
+      OP1_BNE : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
+      default : aluout_EX_r = {DBITS{1'b0}};
     endcase
-  end
-
-  always @ (op1_ID or op2_ID or regval1_ID or regval2_ID or immval_ID) begin
     if(op1_ID == OP1_ALUR)
       case (op2_ID)
 			OP2_EQ	 : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
@@ -412,16 +414,16 @@ module Project(
 			OP2_LE	 : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
 			OP2_NE	 : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
 
-			OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + alu_in_EX_r};
-			OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID & alu_in_EX_r};
-			OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID | alu_in_EX_r};
-			OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID ^ alu_in_EX_r}; //xor
-			OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - alu_in_EX_r};
+			OP2_ADD	 : aluout_EX_r = (regval1_ID + alu_in_EX_r);
+			OP2_AND	 : aluout_EX_r = (regval1_ID & alu_in_EX_r);
+			OP2_OR	 : aluout_EX_r = (regval1_ID | alu_in_EX_r);
+			OP2_XOR	 : aluout_EX_r = (regval1_ID ^ alu_in_EX_r); //xor
+			OP2_SUB	 : aluout_EX_r = (regval1_ID - alu_in_EX_r);
 			//OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID ~& alu_in_EX_r}; //nand
 			//OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID ~| alu_in_EX_r}; //nor
-			OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID ~^ alu_in_EX_r}; //xnor
-			OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID >>> alu_in_EX_r}; //arithmetic shift
-			OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID <<< alu_in_EX_r}; //arithmetic shift
+			OP2_NXOR	 : aluout_EX_r = (regval1_ID ~^ alu_in_EX_r); //xnor
+			OP2_RSHF	 : aluout_EX_r = (regval1_ID >>> alu_in_EX_r); //arithmetic shift
+			OP2_LSHF	 : aluout_EX_r = (regval1_ID <<< alu_in_EX_r); //arithmetic shift
 	default	 : aluout_EX_r = {DBITS{1'b0}};
       endcase
     else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI || op1_ID == OP1_JAL)
@@ -545,10 +547,35 @@ module Project(
   
  
   /*** Branch Handling Logic ***/
-  wire[1:0] branch_logic_out;
-  assign branch_logic_out = 2'b00;  // Placeholder
+  reg[1:0] branch_logic_out;
+  reg[0:0] aluout_EX_r_1bit;
+  reg[0:0] take_branch; //0 = don't take branch, 1 = DO take branch
+  reg[1:0] take_branch_sxt;
+  reg[0:0] is_jal; //0 = not jal, 1 = is jal
+  reg[0:0] flush_logic_out;
   
- 
+  
+  //if opcode is a branch or JAL
+  //do something special
+  always @ (*) begin
+		aluout_EX_r_1bit = aluout_EX_r[0:0];
+		//if the instruction is a branch & if the branch condition is true or not
+		take_branch = (op1_ID == OP1_BEQ | op1_ID == OP1_BLT | op1_ID == OP1_BLE | op1_ID == OP1_BNE) & aluout_EX_r_1bit;	
+		
+		//Sign extend take_branch to be 2 bits
+		take_branch_sxt = {take_branch, take_branch};
+		
+		//is the instruction a jal?
+		is_jal = (op1_ID == OP1_JAL);
+		
+		//if the instruction is a JAL or we are taking the branch, we need to flush
+		flush_logic_out = (is_jal | take_branch);
+		
+		//Sign extend inverse of is_jal to be 2 bits: {~is_jal, ~is_jal}
+		//or it with take_branch_sxt
+		branch_logic_out = ({~is_jal, ~is_jal} | take_branch_sxt);
+  end
+   
   /*** I/O ***/
   // Create and connect HEX register
   reg [23:0] HEX_out;
