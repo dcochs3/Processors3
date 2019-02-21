@@ -275,15 +275,9 @@ module Project(
   end
 
 
-  //*** AGEN/EXEC STAGE ***//
+  //*** EX STAGE ***//
 
-  wire is_br_EX_w;
-  wire is_jmp_EX_w;
-  wire [DBITS-1:0] pcgood_EX_w;
-
-  reg [INSTBITS-1:0] inst_EX; /* This is for debugging */
   reg br_cond_EX;
-  reg [2:0] ctrlsig_EX;
   // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
   reg signed [DBITS-1:0] aluout_EX_r;
   reg [DBITS-1:0] aluout_EX;
@@ -350,17 +344,16 @@ module Project(
 			OP2_LT	 : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
 			OP2_LE	 : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
 			OP2_NE	 : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
-
-			OP2_ADD	 : aluout_EX_r = {31'b0, regval1_ID + alu_in_EX_r};
-			OP2_AND	 : aluout_EX_r = {31'b0, regval1_ID & alu_in_EX_r};
-			OP2_OR	 : aluout_EX_r = {31'b0, regval1_ID | alu_in_EX_r};
-			OP2_XOR	 : aluout_EX_r = {31'b0, regval1_ID ^ alu_in_EX_r}; //xor
-			OP2_SUB	 : aluout_EX_r = {31'b0, regval1_ID - alu_in_EX_r};
-			//OP2_NAND	 : aluout_EX_r = {31'b0, regval1_ID ~& alu_in_EX_r}; //nand
-			//OP2_NOR	 : aluout_EX_r = {31'b0, regval1_ID ~| alu_in_EX_r}; //nor
-			OP2_NXOR	 : aluout_EX_r = {31'b0, regval1_ID ~^ alu_in_EX_r}; //xnor
-			OP2_RSHF	 : aluout_EX_r = {31'b0, regval1_ID >>> alu_in_EX_r}; //arithmetic shift
-			OP2_LSHF	 : aluout_EX_r = {31'b0, regval1_ID <<< alu_in_EX_r}; //arithmetic shift
+			OP2_ADD	 : aluout_EX_r = regval1_ID + alu_in_EX_r;
+			OP2_AND	 : aluout_EX_r = regval1_ID & alu_in_EX_r;
+			OP2_OR	 : aluout_EX_r = regval1_ID | alu_in_EX_r;
+			OP2_XOR	 : aluout_EX_r = regval1_ID ^ alu_in_EX_r;
+			OP2_SUB	 : aluout_EX_r = regval1_ID - alu_in_EX_r;
+			OP2_NAND	 : aluout_EX_r = (~regval1_ID) | (~alu_in_EX_r);
+			OP2_NOR	 : aluout_EX_r = (~regval1_ID) & (~alu_in_EX_r);
+			OP2_NXOR	 : aluout_EX_r = regval1_ID ~^ alu_in_EX_r;
+			OP2_RSHF	 : aluout_EX_r = regval1_ID >>> alu_in_EX_r;     // Arithmetic Shift
+			OP2_LSHF	 : aluout_EX_r = regval1_ID <<< alu_in_EX_r;     // Arithmetic Shift
 	default	 : aluout_EX_r = {DBITS{1'b0}};
       endcase
     else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI || op1_ID == OP1_JAL)
@@ -382,9 +375,7 @@ module Project(
   // EX_latch
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-	   inst_EX	 <= {INSTBITS{1'b0}};
       aluout_EX	 <= {DBITS{1'b0}};
-      ctrlsig_EX <= 3'h0;
 		regval2_EX	<= {DBITS{1'b0}};
     end else begin
 		// TODO: Specify EX latches	
