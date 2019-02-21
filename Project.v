@@ -104,13 +104,6 @@ module Project(
   (* ram_init_file = IMEMINITFILE *)
   reg [DBITS-1:0]    imem [IMEMWORDS-1:0];
   
-  // Constants relevant to FETCH stage
-  parameter take_pcplus = 2'b00;
-  parameter take_jalpc = 2'b01;
-  parameter take_brpc = 2'b11;
-  
-  assign stall_pipe = 1'b1;
-  
   // Display part of PC on sevenseg
   reg[31:0] counter;
   `define ONE_SECOND                            32'd50000000
@@ -143,9 +136,9 @@ module Project(
   parameter TAKE_INCR_PC = 2'b00;
   parameter TAKE_JAL_PC  = 2'b01;
   parameter TAKE_BR_PC   = 2'b11;
+  parameter TAKE_STALL   = 1'b0;
   
-  // Temporary
-  assign stall_pipe = 1'b1;
+  assign stall_pipe = branch_or_jal_stall & stall_logic_out;
     
   // Assignments to wires
   assign inst_FE_w = imem[PC_FE[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -154,22 +147,31 @@ module Project(
   always @ (posedge clk or posedge reset) begin
     if(reset)
         PC_FE <= STARTPC;            // Set PC to initial value after a reset
-    else if(!stall_pipe)
-        PC_FE <= PC_FE;              // If stalling, ???
+    else if (stall_pipe == TAKE_STALL) begin
+        //stall the pipeline
+        //do not fetch a new PC
+        PC_FE <= PC_FE;
+    end
+    else if (flush_logic_out)       // Does this make sense?
+        PC_FE <= STARTPC;
     else
         case(new_pc_src_EX_r & branch_logic_out)
             TAKE_INCR_PC: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
             TAKE_JAL_PC:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
-           TAKE_BR_PC:   PC_FE <= sxt_addr_out_EX_r;   // Take PC + sxtImm from EX stage
+            TAKE_BR_PC:   PC_FE <= sxt_addr_out_EX_r;  // Take PC + sxtImm from EX stage
         endcase
   end
 
   // FETCH buffer
   always @ (posedge clk or posedge reset) begin
-    if(reset)
+    if(reset) begin
       inst_FE <= {INSTBITS{1'b0}};
-    else if(stall_pipe)        // Only change the register contents if stall signal is 1 (1 means *not* stalling)
-      inst_FE <= inst_FE_w;    // Don't need to worry about branch prediction (yet)
+    end
+    else if(stall_pipe != TAKE_STALL)   // Only change the register contents if stall signal is 1 (1 means *not* stalling)
+      inst_FE <= inst_FE_w;             // Don't need to worry about branch prediction (yet)        
+    else if (flush_logic_out) begin
+      inst_FE <= {INSTBITS{1'b0}};
+    end
   end
 
 
@@ -278,8 +280,8 @@ module Project(
         regval1_ID <= {DBITS{1'b0}};
         regval2_ID <= {DBITS{1'b0}};
         wregno_ID  <= {REGNOBITS{1'b0}};
-    end 
-    else begin
+    end
+    else if (stall_logic_out != TAKE_STALL) begin // Only change the register contents if stall signal is 1 (1 means *not* stalling)
         PC_ID             <= PC_ID_w;             //PC
         rt_spec_ID        <= rt_ID_w;             //RtSpec
         regval2_ID        <= regval2_ID_w;        //RtCont
@@ -296,13 +298,8 @@ module Project(
         
         // These are in place of ALUOp
         op1_ID            <= op1_ID_w;
-        op2_ID            <= op2_ID_w;
-
-        // TODO: Stall Signal
-        
-        // TODO: Flush Signal
-
-    end
+        op2_ID            <= op2_ID_w; 
+    end      
   end
 
 
@@ -407,7 +404,8 @@ module Project(
     if(reset) begin
         aluout_EX     <= {DBITS{1'b0}};
         regval2_EX    <= {DBITS{1'b0}};
-    end else begin
+    end
+    else begin
         PC_EX <= PC_ID;                         //PC
         regval2_EX <= regval2_ID;               //RtCont
         aluout_EX <= aluout_EX_r;               //ALUResult
@@ -417,9 +415,7 @@ module Project(
         reg_we_EX <= reg_we_ID;                 //RegWE
         reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
     end
-    
-    // TODO: Stall Signal Handling
-end
+  end
   
 
   //*** MEM STAGE ***//
@@ -576,7 +572,9 @@ end
   parameter is_branch_or_jal = 3'b001;
   wire [0:0] branch_or_jal_stall;
   assign branch_or_jal_stall = ~(op1_ID[5:3] == is_branch_or_jal);
-
+  
+  
+  reg[1:0] stall_logic_out;
 
   /*** I/O ***/
   // Create and connect HEX register
