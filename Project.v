@@ -490,6 +490,7 @@ module Project(
   assign mem_addr_MEM_w = aluout_EX;
   assign mem_we_MEM_w = mem_we_EX;
   assign mem_re_MEM_w = mem_re_EX;
+  assign aluout_MEM_w = aluout_EX;
   assign reg_we_MEM_w = reg_we_EX;
   assign reg_wr_src_sel_MEM_w = reg_wr_src_sel_EX;
   assign dst_reg_MEM_w = dst_reg_EX;
