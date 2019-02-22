@@ -70,6 +70,19 @@ module Project(
   parameter HEXBITS  = 24;
   parameter LEDRBITS = 10;
   parameter KEYBITS  = 4;
+  
+  reg [23:0] HEX_out;
+  wire [0:0] branch_or_jal_stall;
+  wire stall_logic_out;
+  
+   // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
+  reg signed [DBITS-1:0] aluout_EX_r;
+  
+  reg [DBITS-1:0]        new_pc_src_EX_r;
+  reg [DBITS-1:0]        sxt_addr_out_EX_r;
+  reg[1:0] branch_logic_out;
+  reg[0:0] flush_logic_out;
+ 
  
   //*** PLL ***//
   // The reset signal comes from the reset button on the DE0-CV board
@@ -88,28 +101,6 @@ module Project(
   );
   
   assign reset = !locked;
-  
-  // Display part of PC on sevenseg
-  reg[31:0] counter;
-  `define ONE_SECOND							32'd50000000
-  
-  always @ (posedge clk or posedge reset) begin
-    if (reset)
-	   counter <= 32'b0;
-	 else
-	   if (counter >= `ONE_SECOND)
-		  begin
-         HEX_out[3:0] = PC_FE[3:0];
-	       HEX_out[7:4] = PC_FE[7:4];
-	       HEX_out[11:8] = PC_FE[11:8];
-	       HEX_out[15:12] = PC_FE[15:12];
-	       HEX_out[19:16] = PC_FE[19:16];
-	       HEX_out[23:20] = PC_FE[23:20];
-			 counter <= 32'b0;
-		  end
-		else
-		  counter <= counter + 1;
-  end
 
 
   //*** FETCH STAGE ***//
@@ -138,7 +129,7 @@ module Project(
   parameter TAKE_BR_PC   = 2'b11;
   parameter TAKE_STALL   = 1'b0;
   
-  assign stall_pipe = branch_or_jal_stall & stall_logic_out;
+  assign stall_pipe = branch_or_jal_stall == 1 && stall_logic_out == 1;
     
   // Assignments to wires
   assign inst_FE_w = imem[PC_FE[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -172,6 +163,29 @@ module Project(
     else if (flush_logic_out) begin
       inst_FE <= {INSTBITS{1'b0}};
     end
+  end
+  
+  
+  // Display part of PC on sevenseg
+  reg[31:0] counter;
+  `define ONE_SECOND							32'd50000000
+  
+  always @ (posedge clk or posedge reset) begin
+    if (reset)
+	   counter <= 32'b0;
+	 else
+	  if (counter >= `ONE_SECOND)
+		  begin
+         HEX_out[3:0] = PC_FE[3:0];
+	       HEX_out[7:4] = PC_FE[7:4];
+	       HEX_out[11:8] = PC_FE[11:8];
+	       HEX_out[15:12] = PC_FE[15:12];
+	       HEX_out[19:16] = PC_FE[19:16];
+	       HEX_out[23:20] = PC_FE[23:20];
+         counter <= 0;
+		  end
+		else
+		  counter <= counter + 1;
   end
 
 
@@ -274,12 +288,22 @@ module Project(
   // ID Buffer
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-        PC_ID      <= {DBITS{1'b0}};
-        op1_ID     <= {OP1BITS{1'b0}};
-        op2_ID     <= {OP2BITS{1'b0}};
-        regval1_ID <= {DBITS{1'b0}};
-        regval2_ID <= {DBITS{1'b0}};
-        wregno_ID  <= {REGNOBITS{1'b0}};
+        PC_ID             <= {DBITS{1'b0}};
+        rt_spec_ID        <= {REGNOBITS{1'b0}};
+        sxt_imm_ID        <= {DBITS{1'b0}};
+        rd_spec_ID        <= {REGNOBITS{1'b0}};
+        alu_src_ID        <= 2'b00;
+        new_pc_src_ID     <= 2'b00;
+        mem_we_ID         <= 1'b0;
+        mem_re_ID         <= 1'b0;
+        reg_we_ID         <= 1'b0;
+        op1_ID            <= {OP1BITS{1'b0}};
+        op2_ID            <= {OP2BITS{1'b0}};
+        regval1_ID        <= {DBITS{1'b0}};
+        regval2_ID        <= {DBITS{1'b0}};
+        wregno_ID         <= {REGNOBITS{1'b0}};
+        reg_wr_src_sel_ID <= 2'b0;
+        reg_wr_dst_sel_ID <= 1'b0;
     end
     else if (stall_logic_out != TAKE_STALL) begin // Only change the register contents if stall signal is 1 (1 means *not* stalling)
         PC_ID             <= PC_ID_w;             //PC
@@ -316,16 +340,11 @@ module Project(
     
     reg br_cond_EX;
     
-    // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
-    reg signed [DBITS-1:0] aluout_EX_r;
-    
     reg [DBITS-1:0]        aluout_EX;
     reg [DBITS-1:0]        regval2_EX;        //RtCont
     reg [DBITS-1:0]        alu_in_EX_r;       //ALU input (from mux)
     reg [REGNOBITS-1:0]    dst_reg_EX_r;      //DstReg
     reg [DBITS-1:0]        sxt_imm_4_r;       //sxtImm x 4  
-    reg [DBITS-1:0]        new_pc_src_EX_r;
-    reg [DBITS-1:0]        sxt_addr_out_EX_r;
     reg [DBITS-1:0]        PC_EX;             //PC
     reg [REGNOBITS-1:0]    dst_reg_EX;        //DstReg
     reg [0:0]              mem_we_EX;         //MemWE (1 bit)
@@ -402,8 +421,14 @@ module Project(
   // EX Buffer
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-        aluout_EX     <= {DBITS{1'b0}};
-        regval2_EX    <= {DBITS{1'b0}};
+        PC_EX             <= {DBITS{1'b0}};
+        aluout_EX         <= {DBITS{1'b0}};
+        regval2_EX        <= {DBITS{1'b0}};
+        dst_reg_EX        <= {REGNOBITS{1'b0}};
+        mem_we_EX         <= 1'b0;
+        mem_re_EX         <= 1'b0;
+        reg_we_EX         <= 1'b0;
+        reg_wr_src_sel_EX <= 2'b0;
     end
     else begin
         PC_EX             <= PC_ID;             //PC
@@ -535,16 +560,12 @@ module Project(
     end
   end
   
-  
- 
   /*** Branch Handling Logic ***/
-
-    reg[1:0] branch_logic_out;
+  
     reg[0:0] aluout_EX_r_1bit;
     reg[0:0] take_branch; //0 = don't take branch, 1 = DO take branch
     reg[1:0] take_branch_sxt;
     reg[0:0] is_jal; //0 = not jal, 1 = is jal
-    reg[0:0] flush_logic_out;
 
     //if opcode is a branch or JAL
     always @ (*) begin
@@ -570,23 +591,20 @@ module Project(
   
   //stall for branch and jal
   parameter is_branch_or_jal = 3'b001;
-  wire [0:0] branch_or_jal_stall;
   assign branch_or_jal_stall = ~(op1_ID[5:3] == is_branch_or_jal);
   
   wire should_stall_ID;
   wire should_stall_EX;
   wire should_stall_MEM;
   
-  wire stall_logic_out;
-  
-  assign should_stall_ID = op1_ID_w == OP1_ALUR || op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT
-    || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_SW;
+  assign should_stall_ID = op1_ID_w == OP1_ALUR | op1_ID_w == OP1_BEQ | op1_ID_w == OP1_BLT
+    | op1_ID_w == OP1_BLE | op1_ID_w == OP1_BNE | op1_ID_w == OP1_SW;
   
   assign should_stall_EX = (dst_reg_EX_r == rt_ID_w & should_stall_ID & reg_we_ID)
-    || (dst_reg_EX_r == rs_ID_w & reg_we_ID);
+    | (dst_reg_EX_r == rs_ID_w & reg_we_ID);
    
   assign should_stall_MEM = (dst_reg_MEM_w == rt_ID_w & should_stall_ID & reg_we_MEM_w)
-    || (dst_reg_MEM_w == rs_ID_w & reg_we_MEM_w);
+    | (dst_reg_MEM_w == rs_ID_w & reg_we_MEM_w);
     
   assign stall_logic_out = ~(should_stall_EX | should_stall_MEM);
       
@@ -594,7 +612,6 @@ module Project(
 
   /*** I/O ***/
   // Create and connect HEX register
-  reg [23:0] HEX_out;
  
   SevenSeg ss5(.OUT(HEX5), .IN(HEX_out[23:20]), .OFF(1'b0));
   SevenSeg ss4(.OUT(HEX4), .IN(HEX_out[19:16]), .OFF(1'b0));
@@ -643,7 +660,6 @@ module CONTROL_SIGNAL_GENERATOR(
   output reg         REGWRDSTSEL_OUT
 );
 
-always @ (*) begin
   parameter OP1_ALUR = 6'b000000;
   parameter OP1_BEQ  = 6'b001000;
   parameter OP1_BLT  = 6'b001001;
@@ -656,6 +672,8 @@ always @ (*) begin
   parameter OP1_ANDI = 6'b100100;
   parameter OP1_ORI  = 6'b100101;
   parameter OP1_XORI = 6'b100110;
+
+always @ (*) begin
   
   case (OPCODE1_IN)
     //EXT instructions
