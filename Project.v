@@ -12,18 +12,18 @@ module Project(
   output [9:0] LEDR
 );
 
-  parameter DBITS    = 32;
-  parameter INSTSIZE = 32'd4;
-  parameter INSTBITS = 32;
-  parameter REGNOBITS= 4;
-  parameter REGWORDS = (1 << REGNOBITS);
-  parameter IMMBITS  = 16;
-  parameter STARTPC  = 32'h100;
-  parameter ADDRHEX  = 32'hFFFFF000;
-  parameter ADDRLEDR = 32'hFFFFF020;
-  parameter ADDRKEY  = 32'hFFFFF080;
-  parameter ADDRSW   = 32'hFFFFF090;
-
+  parameter DBITS     = 32;
+  parameter INSTSIZE  = 32'd4;
+  parameter INSTBITS  = 32;
+  parameter REGNOBITS = 4;
+  parameter REGWORDS  = (1 << REGNOBITS);
+  parameter IMMBITS   = 16;
+  parameter STARTPC   = 32'h100;
+  parameter ADDRHEX   = 32'hFFFFF000;
+  parameter ADDRLEDR  = 32'hFFFFF020;
+  parameter ADDRKEY   = 32'hFFFFF080;
+  parameter ADDRSW    = 32'hFFFFF090;
+ 
   // Change this to fmedian2.mif before submitting
   parameter IMEMINITFILE = "Test.mif";
   //parameter IMEMINITFILE = "fmedian2.mif";
@@ -88,6 +88,28 @@ module Project(
   );
   
   assign reset = !locked;
+  
+  // Display part of PC on sevenseg
+  reg[31:0] counter;
+  `define ONE_SECOND							32'd50000000
+  
+  always @ (posedge clk or posedge reset) begin
+    if (reset)
+	   counter <= 32'b0;
+	 else
+	   if (counter >= `ONE_SECOND)
+		  begin
+         HEX_out[3:0] = PC_FE[3:0];
+	       HEX_out[7:4] = PC_FE[7:4];
+	       HEX_out[11:8] = PC_FE[11:8];
+	       HEX_out[15:12] = PC_FE[15:12];
+	       HEX_out[19:16] = PC_FE[19:16];
+	       HEX_out[23:20] = PC_FE[23:20];
+			 counter <= 32'b0;
+		  end
+		else
+		  counter <= counter + 1;
+  end
 
 
   //*** FETCH STAGE ***//
@@ -104,33 +126,11 @@ module Project(
   (* ram_init_file = IMEMINITFILE *)
   reg [DBITS-1:0]    imem [IMEMWORDS-1:0];
   
-  // Display part of PC on sevenseg
-  reg[31:0] counter;
-  `define ONE_SECOND                            32'd50000000
-  
-  always @ (posedge clk or posedge reset) begin
-    if (reset)
-        counter <= 32'b0;
-    else
-        if (counter >= `ONE_SECOND)
-        begin
-            HEX_out[3:0] = PC_FE[3:0];
-            HEX_out[7:4] = PC_FE[7:4];
-            HEX_out[11:8] = PC_FE[11:8];
-            HEX_out[15:12] = PC_FE[15:12];
-            HEX_out[19:16] = PC_FE[19:16];
-            HEX_out[23:20] = PC_FE[23:20];
-            counter <= 32'b0;
-        end
-        else
-            counter <= counter + 1;
-  end
-  
   // This statement is used to initialize the I-MEM
   // during simulation using Model-Sim
-  //initial begin
-  //  $readmemh("test.hex", imem);
-  //end
+  initial begin
+    $readmemh("test.hex", imem);
+  end
  
   // Constants
   parameter TAKE_INCR_PC = 2'b00;
@@ -306,57 +306,57 @@ module Project(
     //*** EX STAGE ***//
   
     // Constants relevant to EXECUTE stage
-    parameter take_rtspec = 1'b0;
-    parameter take_rdspec = 1'b1;
-    parameter take_rtcont = 2'b00;
-    parameter take_sxtimm = 2'b01;
+    parameter take_rtspec   = 1'b0;
+    parameter take_rdspec   = 1'b1;
+    parameter take_rtcont   = 2'b00;
+    parameter take_sxtimm   = 2'b01;
     parameter take_sxtimm_4 = 2'b10;
 
+    /* Registers */
+    
     reg br_cond_EX;
+    
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
     reg signed [DBITS-1:0] aluout_EX_r;
-    reg [DBITS-1:0] aluout_EX;
-    reg [DBITS-1:0] regval2_EX;       //RtCont
     
-    //my wires and registers
-    reg [DBITS-1:0] alu_in_EX_r;      //ALU input (from mux)
-    reg [REGNOBITS-1:0] dst_reg_EX_r; //DstReg
-    reg [DBITS-1:0] sxt_imm_4_r;      //sxtImm x 4
-    
-    reg [DBITS-1:0] new_pc_src_EX_r;
-    reg [DBITS-1:0] sxt_addr_out_EX_r;
-    
-    reg [DBITS-1:0] PC_EX;            //PC
-    reg [REGNOBITS-1:0] dst_reg_EX;   //DstReg
-    reg [0:0] mem_we_EX;              //MemWE (1 bit)
-    reg [0:0] mem_re_EX;              //MemRE (1 bit)
-    reg [0:0] reg_we_EX;              //RegWE (1 bit)
-    reg [1:0] reg_wr_src_sel_EX;      //RegWrSrcSel (2 bits)
+    reg [DBITS-1:0]        aluout_EX;
+    reg [DBITS-1:0]        regval2_EX;        //RtCont
+    reg [DBITS-1:0]        alu_in_EX_r;       //ALU input (from mux)
+    reg [REGNOBITS-1:0]    dst_reg_EX_r;      //DstReg
+    reg [DBITS-1:0]        sxt_imm_4_r;       //sxtImm x 4  
+    reg [DBITS-1:0]        new_pc_src_EX_r;
+    reg [DBITS-1:0]        sxt_addr_out_EX_r;
+    reg [DBITS-1:0]        PC_EX;             //PC
+    reg [REGNOBITS-1:0]    dst_reg_EX;        //DstReg
+    reg [0:0]              mem_we_EX;         //MemWE (1 bit)
+    reg [0:0]              mem_re_EX;         //MemRE (1 bit)
+    reg [0:0]              reg_we_EX;         //RegWE (1 bit)
+    reg [1:0]              reg_wr_src_sel_EX; //RegWrSrcSel (2 bits)
     
     always @ (*) begin
         new_pc_src_EX_r = new_pc_src_ID;
     end
     
     always @ (*) begin
-        //shift left 2 bits with 0s
-        sxt_imm_4_r = sxt_imm_ID << 2;
+      //shift left 2 bits with 0s
+      sxt_imm_4_r = sxt_imm_ID << 2;
     
-        //set dst_reg_EX_r
-        if (reg_wr_dst_sel_ID == take_rtspec)
-            dst_reg_EX_r = rt_spec_ID; //RtSpec
-        else if (reg_wr_dst_sel_ID == take_rdspec)
-            dst_reg_EX_r = rd_spec_ID; //RdSpec
+      //set dst_reg_EX_r
+      if (reg_wr_dst_sel_ID == take_rtspec)
+        dst_reg_EX_r = rt_spec_ID; //RtSpec
+      else if (reg_wr_dst_sel_ID == take_rdspec)
+        dst_reg_EX_r = rd_spec_ID; //RdSpec
             
-        //set alu's 2nd input (alu_in_EX_r)
-        if (alu_src_ID == take_rtcont)
-            alu_in_EX_r = regval2_ID;  //take RtCont
-        else if (alu_src_ID == take_sxtimm)
-            alu_in_EX_r = sxt_imm_ID;  //take sxtImm
-        else if (alu_src_ID == take_sxtimm_4)
-            alu_in_EX_r = sxt_imm_4_r; //take sxtImm x 4
+      //set alu's 2nd input (alu_in_EX_r)
+      if (alu_src_ID == take_rtcont)
+        alu_in_EX_r = regval2_ID;  //take RtCont
+      else if (alu_src_ID == take_sxtimm)
+        alu_in_EX_r = sxt_imm_ID;  //take sxtImm
+      else if (alu_src_ID == take_sxtimm_4)
+        alu_in_EX_r = sxt_imm_4_r; //take sxtImm x 4
             
-        //set PC increment
-        sxt_addr_out_EX_r = (PC_ID + sxt_imm_4_r); 
+      //set PC increment
+      sxt_addr_out_EX_r = (PC_ID + sxt_imm_4_r); 
             
     end
 
@@ -406,13 +406,13 @@ module Project(
         regval2_EX    <= {DBITS{1'b0}};
     end
     else begin
-        PC_EX <= PC_ID;                         //PC
-        regval2_EX <= regval2_ID;               //RtCont
-        aluout_EX <= aluout_EX_r;               //ALUResult
-        dst_reg_EX <= dst_reg_EX_r;             //DstReg
-        mem_we_EX <= mem_we_ID;                 //MemWE
-        mem_re_EX <= mem_re_ID;                 //MemRE
-        reg_we_EX <= reg_we_ID;                 //RegWE
+        PC_EX             <= PC_ID;             //PC
+        regval2_EX        <= regval2_ID;        //RtCont
+        aluout_EX         <= aluout_EX_r;       //ALUResult
+        dst_reg_EX        <= dst_reg_EX_r;      //DstReg
+        mem_we_EX         <= mem_we_ID;         //MemWE
+        mem_re_EX         <= mem_re_ID;         //MemRE
+        reg_we_EX         <= reg_we_ID;         //RegWE
         reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
     end
   end
@@ -573,8 +573,24 @@ module Project(
   wire [0:0] branch_or_jal_stall;
   assign branch_or_jal_stall = ~(op1_ID[5:3] == is_branch_or_jal);
   
+  wire should_stall_ID;
+  wire should_stall_EX;
+  wire should_stall_MEM;
   
-  reg[1:0] stall_logic_out;
+  wire stall_logic_out;
+  
+  assign should_stall_ID = op1_ID_w == OP1_ALUR || op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT
+    || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_SW;
+  
+  assign should_stall_EX = (dst_reg_EX_r == rt_ID_w & should_stall_ID & reg_we_ID)
+    || (dst_reg_EX_r == rs_ID_w & reg_we_ID);
+   
+  assign should_stall_MEM = (dst_reg_MEM_w == rt_ID_w & should_stall_ID & reg_we_MEM_w)
+    || (dst_reg_MEM_w == rs_ID_w & reg_we_MEM_w);
+    
+  assign stall_logic_out = ~(should_stall_EX | should_stall_MEM);
+      
+   
 
   /*** I/O ***/
   // Create and connect HEX register
