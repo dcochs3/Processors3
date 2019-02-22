@@ -166,28 +166,6 @@ module Project(
   end
   
   
-  // Display part of PC on sevenseg
-  reg[31:0] counter;
-  `define ONE_SECOND							32'd50000000
-  
-  always @ (posedge clk or posedge reset) begin
-    if (reset)
-	   counter <= 32'b0;
-	 else
-	  if (counter >= `ONE_SECOND)
-		  begin
-         HEX_out[3:0] = PC_FE[3:0];
-	       HEX_out[7:4] = PC_FE[7:4];
-	       HEX_out[11:8] = PC_FE[11:8];
-	       HEX_out[15:12] = PC_FE[15:12];
-	       HEX_out[19:16] = PC_FE[19:16];
-	       HEX_out[23:20] = PC_FE[23:20];
-         counter <= 0;
-		  end
-		else
-		  counter <= counter + 1;
-  end
-
 
   //*** DECODE STAGE ***//
   
@@ -238,6 +216,7 @@ module Project(
   reg [DBITS-1:0]     sxt_imm_ID;
   reg [REGNOBITS-1:0] rt_spec_ID;
   reg [REGNOBITS-1:0] rd_spec_ID; //RdSpec
+  reg                 stall_pipe_ID;
   
   // Control Signals
   reg [1:0] alu_src_ID;        //ALUSrc (2 bits)
@@ -304,8 +283,30 @@ module Project(
         wregno_ID         <= {REGNOBITS{1'b0}};
         reg_wr_src_sel_ID <= 2'b0;
         reg_wr_dst_sel_ID <= 1'b0;
+        stall_pipe_ID     <= 1'b0;
     end
-    else if (stall_logic_out != TAKE_STALL) begin // Only change the register contents if stall signal is 1 (1 means *not* stalling)
+    else if (stall_pipe_ID == 1) begin
+        PC_ID             <= {DBITS{1'b0}};
+        rt_spec_ID        <= {REGNOBITS{1'b0}};
+        sxt_imm_ID        <= {DBITS{1'b0}};
+        rd_spec_ID        <= {REGNOBITS{1'b0}};
+        alu_src_ID        <= 2'b00;
+        new_pc_src_ID     <= 2'b00;
+        mem_we_ID         <= 1'b0;
+        mem_re_ID         <= 1'b0;
+        reg_we_ID         <= 1'b0;
+        op1_ID            <= {OP1BITS{1'b0}};
+        op2_ID            <= {OP2BITS{1'b0}};
+        regval1_ID        <= {DBITS{1'b0}};
+        regval2_ID        <= {DBITS{1'b0}};
+        wregno_ID         <= {REGNOBITS{1'b0}};
+        reg_wr_src_sel_ID <= 2'b0;
+        reg_wr_dst_sel_ID <= 1'b0;
+        stall_pipe_ID     <= 1'b0;
+    end
+    else if (stall_logic_out == TAKE_STALL)
+        stall_pipe_ID     <= 1'b1;
+    else begin // Only change the register contents if stall signal is 1 (1 means *not* stalling)
         PC_ID             <= PC_ID_w;             //PC
         rt_spec_ID        <= rt_ID_w;             //RtSpec
         regval2_ID        <= regval2_ID_w;        //RtCont
@@ -319,6 +320,7 @@ module Project(
         reg_we_ID         <= reg_we_ID_w;         //RegWE
         reg_wr_src_sel_ID <= reg_wr_src_sel_ID_w; //RegWrSrcSel
         reg_wr_dst_sel_ID <= reg_wr_dst_sel_ID_w; //RegWrDstSel
+        stall_pipe_ID     <= 1'b0;
         
         // These are in place of ALUOp
         op1_ID            <= op1_ID_w;
@@ -339,6 +341,7 @@ module Project(
     /* Registers */
     
     reg br_cond_EX;
+    reg stall_pipe_EX;
     
     reg [DBITS-1:0]        aluout_EX;
     reg [DBITS-1:0]        regval2_EX;        //RtCont
@@ -430,6 +433,16 @@ module Project(
         reg_we_EX         <= 1'b0;
         reg_wr_src_sel_EX <= 2'b0;
     end
+    else if (stall_pipe_ID == 1) begin
+        PC_EX             <= {DBITS{1'b0}};
+        aluout_EX         <= {DBITS{1'b0}};
+        regval2_EX        <= {DBITS{1'b0}};
+        dst_reg_EX        <= {REGNOBITS{1'b0}};
+        mem_we_EX         <= 1'b0;
+        mem_re_EX         <= 1'b0;
+        reg_we_EX         <= 1'b0;
+        reg_wr_src_sel_EX <= 2'b0;
+    end
     else begin
         PC_EX             <= PC_ID;             //PC
         regval2_EX        <= regval2_ID;        //RtCont
@@ -439,6 +452,7 @@ module Project(
         mem_re_EX         <= mem_re_ID;         //MemRE
         reg_we_EX         <= reg_we_ID;         //RegWE
         reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
+        stall_pipe_EX     <= 1'b0;
     end
   end
   
@@ -600,11 +614,11 @@ module Project(
   assign should_stall_ID = op1_ID_w == OP1_ALUR | op1_ID_w == OP1_BEQ | op1_ID_w == OP1_BLT
     | op1_ID_w == OP1_BLE | op1_ID_w == OP1_BNE | op1_ID_w == OP1_SW;
   
-  assign should_stall_EX = (dst_reg_EX_r == rt_ID_w & should_stall_ID & reg_we_ID)
-    | (dst_reg_EX_r == rs_ID_w & reg_we_ID);
+  assign should_stall_EX = ((dst_reg_EX_r == rt_ID_w) & should_stall_ID & reg_we_ID)
+    | ((dst_reg_EX_r == rs_ID_w) & reg_we_ID);
    
-  assign should_stall_MEM = (dst_reg_MEM_w == rt_ID_w & should_stall_ID & reg_we_MEM_w)
-    | (dst_reg_MEM_w == rs_ID_w & reg_we_MEM_w);
+  assign should_stall_MEM = ((dst_reg_MEM_w == rt_ID_w) & should_stall_ID & reg_we_MEM_w)
+    | ((dst_reg_MEM_w == rs_ID_w) & reg_we_MEM_w);
     
   assign stall_logic_out = ~(should_stall_EX | should_stall_MEM);
       
