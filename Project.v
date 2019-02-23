@@ -18,7 +18,7 @@ module Project(
   parameter REGNOBITS = 4;
   parameter REGWORDS  = (1 << REGNOBITS);
   parameter IMMBITS   = 16;
-  parameter STARTPC   = 32'h100;
+  parameter STARTPC   = 32'h00000100;
   parameter ADDRHEX   = 32'hFFFFF000;
   parameter ADDRLEDR  = 32'hFFFFF020;
   parameter ADDRKEY   = 32'hFFFFF080;
@@ -70,6 +70,19 @@ module Project(
   parameter HEXBITS  = 24;
   parameter LEDRBITS = 10;
   parameter KEYBITS  = 4;
+  
+  reg [23:0] HEX_out;
+  wire [0:0] branch_or_jal_stall;
+  wire stall_logic_out;
+ 
+   // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
+  reg signed [DBITS-1:0] aluout_EX_r;
+  
+  reg [DBITS-1:0]        new_pc_src_EX_r;
+  reg [DBITS-1:0]        sxt_addr_out_EX_r;
+  reg[1:0] branch_logic_out;
+  reg[0:0] flush_logic_out;
+ 
  
   //*** PLL ***//
   // The reset signal comes from the reset button on the DE0-CV board
@@ -88,28 +101,6 @@ module Project(
   );
   
   assign reset = !locked;
-  
-  // Display part of PC on sevenseg
-  reg[31:0] counter;
-  `define ONE_SECOND							32'd50000000
-  
-  always @ (posedge clk or posedge reset) begin
-    if (reset)
-	   counter <= 32'b0;
-	 else
-	   if (counter >= `ONE_SECOND)
-		  begin
-         HEX_out[3:0] = PC_FE[3:0];
-	       HEX_out[7:4] = PC_FE[7:4];
-	       HEX_out[11:8] = PC_FE[11:8];
-	       HEX_out[15:12] = PC_FE[15:12];
-	       HEX_out[19:16] = PC_FE[19:16];
-	       HEX_out[23:20] = PC_FE[23:20];
-			 counter <= 32'b0;
-		  end
-		else
-		  counter <= counter + 1;
-  end
 
 
   //*** FETCH STAGE ***//
@@ -118,9 +109,13 @@ module Project(
   wire [DBITS-1:0]   inst_FE_w;
   wire               stall_pipe;
   
+  
   // Registers
   reg [DBITS-1:0]    PC_FE;       // The PC that goes in the FETCH buffer
   reg [INSTBITS-1:0] inst_FE;
+  reg                waiting_to_branch;
+  reg                done_branching;
+  reg [DBITS-1:0]    branch_pc_from_stall;
   
   // I-MEM
   (* ram_init_file = IMEMINITFILE *)
@@ -138,7 +133,7 @@ module Project(
   parameter TAKE_BR_PC   = 2'b11;
   parameter TAKE_STALL   = 1'b0;
   
-  assign stall_pipe = branch_or_jal_stall & stall_logic_out;
+  assign stall_pipe = branch_or_jal_stall == 1 && stall_logic_out == 1;
     
   // Assignments to wires
   assign inst_FE_w = imem[PC_FE[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -155,11 +150,18 @@ module Project(
     else if (flush_logic_out)       // Does this make sense?
         PC_FE <= STARTPC;
     else
-        case(new_pc_src_EX_r & branch_logic_out)
-            TAKE_INCR_PC: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
-            TAKE_JAL_PC:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
-            TAKE_BR_PC:   PC_FE <= sxt_addr_out_EX_r;  // Take PC + sxtImm from EX stage
-        endcase
+        if (waiting_to_branch == 1) begin
+            PC_FE             <= branch_pc_from_stall;
+            done_branching    <= 1'b1;
+        end
+        else begin
+            done_branching    <= 1'b0;
+            case(new_pc_src_EX_r & branch_logic_out)
+                TAKE_INCR_PC: PC_FE <= PC_FE + INSTSIZE;   // Take PC + 4 as normal
+                TAKE_JAL_PC:  PC_FE <= aluout_EX_r;        // Take ALU result as new PC for JAL
+                TAKE_BR_PC:   PC_FE <= sxt_addr_out_EX_r;  // Take PC + sxtImm from EX stage
+            endcase
+        end
   end
 
   // FETCH buffer
@@ -173,7 +175,8 @@ module Project(
       inst_FE <= {INSTBITS{1'b0}};
     end
   end
-
+  
+  
 
   //*** DECODE STAGE ***//
   
@@ -194,7 +197,6 @@ module Project(
   wire                 wr_mem_ID_w;
   wire                 wr_reg_ID_w;
   wire [4:0]           ctrlsig_ID_w;
-  wire [REGNOBITS-1:0] wregno_ID_w;
   wire                 wr_reg_EX_w;
   wire                 wr_reg_MEM_w;
   
@@ -218,12 +220,12 @@ module Project(
   reg signed [DBITS-1:0] immval_ID;
   reg [OP1BITS-1:0]      op1_ID;
   reg [OP2BITS-1:0]      op2_ID;
-  reg [REGNOBITS-1:0]    wregno_ID;
   
   // Buffer Registers
   reg [DBITS-1:0]     sxt_imm_ID;
   reg [REGNOBITS-1:0] rt_spec_ID;
   reg [REGNOBITS-1:0] rd_spec_ID; //RdSpec
+  reg                 stall_pipe_ID;
   
   // Control Signals
   reg [1:0] alu_src_ID;        //ALUSrc (2 bits)
@@ -266,22 +268,48 @@ module Project(
     .REGWRDSTSEL_OUT(reg_wr_dst_sel_ID_w)     //0 = RtSpec, 1 = RdSpec
   );
   
-
-  // TODO: Specify stall condition
-  // assign stall_pipe = ... ;
-
   
   // ID Buffer
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-        PC_ID      <= {DBITS{1'b0}};
-        op1_ID     <= {OP1BITS{1'b0}};
-        op2_ID     <= {OP2BITS{1'b0}};
-        regval1_ID <= {DBITS{1'b0}};
-        regval2_ID <= {DBITS{1'b0}};
-        wregno_ID  <= {REGNOBITS{1'b0}};
+        PC_ID             <= {DBITS{1'b0}};
+        rt_spec_ID        <= {REGNOBITS{1'b0}};
+        sxt_imm_ID        <= {DBITS{1'b0}};
+        rd_spec_ID        <= {REGNOBITS{1'b0}};
+        alu_src_ID        <= 2'b00;
+        new_pc_src_ID     <= 2'b00;
+        mem_we_ID         <= 1'b0;
+        mem_re_ID         <= 1'b0;
+        reg_we_ID         <= 1'b0;
+        op1_ID            <= {OP1BITS{1'b0}};
+        op2_ID            <= {OP2BITS{1'b0}};
+        regval1_ID        <= {DBITS{1'b0}};
+        regval2_ID        <= {DBITS{1'b0}};
+        reg_wr_src_sel_ID <= 2'b0;
+        reg_wr_dst_sel_ID <= 1'b0;
+        stall_pipe_ID     <= 1'b0;
     end
-    else if (stall_logic_out != TAKE_STALL) begin // Only change the register contents if stall signal is 1 (1 means *not* stalling)
+    else if (stall_pipe_ID == 1) begin
+        PC_ID             <= {DBITS{1'b0}};
+        rt_spec_ID        <= {REGNOBITS{1'b0}};
+        sxt_imm_ID        <= {DBITS{1'b0}};
+        rd_spec_ID        <= {REGNOBITS{1'b0}};
+        alu_src_ID        <= 2'b00;
+        new_pc_src_ID     <= 2'b00;
+        mem_we_ID         <= 1'b0;
+        mem_re_ID         <= 1'b0;
+        reg_we_ID         <= 1'b0;
+        op1_ID            <= {OP1BITS{1'b0}};
+        op2_ID            <= {OP2BITS{1'b0}};
+        regval1_ID        <= {DBITS{1'b0}};
+        regval2_ID        <= {DBITS{1'b0}};
+        reg_wr_src_sel_ID <= 2'b0;
+        reg_wr_dst_sel_ID <= 1'b0;
+        stall_pipe_ID     <= 1'b0;
+    end
+    else if (stall_logic_out == TAKE_STALL)
+        stall_pipe_ID     <= 1'b1;
+    else begin // Only change the register contents if stall signal is 1 (1 means *not* stalling)
         PC_ID             <= PC_ID_w;             //PC
         rt_spec_ID        <= rt_ID_w;             //RtSpec
         regval2_ID        <= regval2_ID_w;        //RtCont
@@ -295,6 +323,7 @@ module Project(
         reg_we_ID         <= reg_we_ID_w;         //RegWE
         reg_wr_src_sel_ID <= reg_wr_src_sel_ID_w; //RegWrSrcSel
         reg_wr_dst_sel_ID <= reg_wr_dst_sel_ID_w; //RegWrDstSel
+        stall_pipe_ID     <= 1'b0;
         
         // These are in place of ALUOp
         op1_ID            <= op1_ID_w;
@@ -316,16 +345,11 @@ module Project(
     
     reg br_cond_EX;
     
-    // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
-    reg signed [DBITS-1:0] aluout_EX_r;
-    
     reg [DBITS-1:0]        aluout_EX;
     reg [DBITS-1:0]        regval2_EX;        //RtCont
     reg [DBITS-1:0]        alu_in_EX_r;       //ALU input (from mux)
     reg [REGNOBITS-1:0]    dst_reg_EX_r;      //DstReg
     reg [DBITS-1:0]        sxt_imm_4_r;       //sxtImm x 4  
-    reg [DBITS-1:0]        new_pc_src_EX_r;
-    reg [DBITS-1:0]        sxt_addr_out_EX_r;
     reg [DBITS-1:0]        PC_EX;             //PC
     reg [REGNOBITS-1:0]    dst_reg_EX;        //DstReg
     reg [0:0]              mem_we_EX;         //MemWE (1 bit)
@@ -357,19 +381,27 @@ module Project(
             
       //set PC increment
       sxt_addr_out_EX_r = (PC_ID + sxt_imm_4_r); 
+      
+      if (branch_or_jal_stall == 0 && stall_pipe == TAKE_STALL) begin
+        waiting_to_branch    = 1'b1;
+        branch_pc_from_stall = sxt_addr_out_EX_r;
+      end
+      else if (done_branching == 1)
+        waiting_to_branch    = 1'b0;
             
     end
 
-  always @ (op1_ID or op2_ID or regval1_ID or alu_in_EX_r) begin
-    case (op1_ID)
-        OP1_BEQ : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
-        OP1_BLT : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
-        OP1_BLE : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
-        OP1_BNE : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
-        default : aluout_EX_r = {DBITS{1'b0}};
-    endcase
-
-    if(op1_ID == OP1_ALUR)
+//  always @ (op1_ID or op2_ID or regval1_ID or alu_in_EX_r) begin
+  always @ (*) begin
+    if (op1_ID == OP1_BEQ || op1_ID == OP1_BLT || op1_ID == OP1_BLE || op1_ID == OP1_BNE)
+        case (op1_ID)
+            OP1_BEQ : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
+            OP1_BLT : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
+            OP1_BLE : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
+            OP1_BNE : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
+            default : aluout_EX_r = {DBITS{1'b0}};
+        endcase
+    else if(op1_ID == OP1_ALUR)
         case (op2_ID)
             OP2_EQ     : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
             OP2_LT     : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
@@ -380,9 +412,9 @@ module Project(
             OP2_OR     : aluout_EX_r = regval1_ID | alu_in_EX_r;
             OP2_XOR    : aluout_EX_r = regval1_ID ^ alu_in_EX_r;
             OP2_SUB    : aluout_EX_r = regval1_ID - alu_in_EX_r;
-            OP2_NAND   : aluout_EX_r = (~regval1_ID) | (~alu_in_EX_r);
-            OP2_NOR    : aluout_EX_r = (~regval1_ID) & (~alu_in_EX_r);
-            OP2_NXOR   : aluout_EX_r = regval1_ID ~^ alu_in_EX_r;
+            OP2_NAND   : aluout_EX_r = ~(regval1_ID & alu_in_EX_r);
+            OP2_NOR    : aluout_EX_r = ~(regval1_ID | alu_in_EX_r);
+            OP2_NXOR   : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r);
             OP2_RSHF   : aluout_EX_r = regval1_ID >>> alu_in_EX_r;     // Arithmetic Shift
             OP2_LSHF   : aluout_EX_r = regval1_ID <<< alu_in_EX_r;     // Arithmetic Shift
             default    : aluout_EX_r = {DBITS{1'b0}};
@@ -402,8 +434,24 @@ module Project(
   // EX Buffer
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
-        aluout_EX     <= {DBITS{1'b0}};
-        regval2_EX    <= {DBITS{1'b0}};
+        PC_EX             <= {DBITS{1'b0}};
+        aluout_EX         <= {DBITS{1'b0}};
+        regval2_EX        <= {DBITS{1'b0}};
+        dst_reg_EX        <= {REGNOBITS{1'b0}};
+        mem_we_EX         <= 1'b0;
+        mem_re_EX         <= 1'b0;
+        reg_we_EX         <= 1'b0;
+        reg_wr_src_sel_EX <= 2'b0;
+    end
+    else if (stall_pipe_ID == 1) begin
+        PC_EX             <= {DBITS{1'b0}};
+        aluout_EX         <= {DBITS{1'b0}};
+        regval2_EX        <= {DBITS{1'b0}};
+        dst_reg_EX        <= {REGNOBITS{1'b0}};
+        mem_we_EX         <= 1'b0;
+        mem_re_EX         <= 1'b0;
+        reg_we_EX         <= 1'b0;
+        reg_wr_src_sel_EX <= 2'b0;
     end
     else begin
         PC_EX             <= PC_ID;             //PC
@@ -440,7 +488,6 @@ module Project(
   reg [REGNOBITS-1:0] dst_reg_MEM;
   reg reg_we_MEM;
   reg [1:0] reg_wr_src_sel_MEM;
-//  reg ctrlsig_MEM;
   
   // D-MEM
   (* ram_init_file = IMEMINITFILE *)
@@ -451,6 +498,7 @@ module Project(
   assign mem_addr_MEM_w = aluout_EX;
   assign mem_we_MEM_w = mem_we_EX;
   assign mem_re_MEM_w = mem_re_EX;
+  assign aluout_MEM_w = aluout_EX;
   assign reg_we_MEM_w = reg_we_EX;
   assign reg_wr_src_sel_MEM_w = reg_wr_src_sel_EX;
   assign dst_reg_MEM_w = dst_reg_EX;
@@ -535,16 +583,12 @@ module Project(
     end
   end
   
-  
- 
   /*** Branch Handling Logic ***/
-
-    reg[1:0] branch_logic_out;
+  
     reg[0:0] aluout_EX_r_1bit;
     reg[0:0] take_branch; //0 = don't take branch, 1 = DO take branch
     reg[1:0] take_branch_sxt;
     reg[0:0] is_jal; //0 = not jal, 1 = is jal
-    reg[0:0] flush_logic_out;
 
     //if opcode is a branch or JAL
     always @ (*) begin
@@ -570,23 +614,20 @@ module Project(
   
   //stall for branch and jal
   parameter is_branch_or_jal = 3'b001;
-  wire [0:0] branch_or_jal_stall;
   assign branch_or_jal_stall = ~(op1_ID[5:3] == is_branch_or_jal);
   
   wire should_stall_ID;
   wire should_stall_EX;
   wire should_stall_MEM;
   
-  wire stall_logic_out;
+  assign should_stall_ID = op1_ID_w == OP1_ALUR | op1_ID_w == OP1_BEQ | op1_ID_w == OP1_BLT
+    | op1_ID_w == OP1_BLE | op1_ID_w == OP1_BNE | op1_ID_w == OP1_SW;
   
-  assign should_stall_ID = op1_ID_w == OP1_ALUR || op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT
-    || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_SW;
-  
-  assign should_stall_EX = (dst_reg_EX_r == rt_ID_w & should_stall_ID & reg_we_ID)
-    || (dst_reg_EX_r == rs_ID_w & reg_we_ID);
+  assign should_stall_EX = ((dst_reg_EX_r == rt_ID_w) & should_stall_ID & reg_we_ID)
+    | ((dst_reg_EX_r == rs_ID_w) & reg_we_ID);
    
-  assign should_stall_MEM = (dst_reg_MEM_w == rt_ID_w & should_stall_ID & reg_we_MEM_w)
-    || (dst_reg_MEM_w == rs_ID_w & reg_we_MEM_w);
+  assign should_stall_MEM = ((dst_reg_MEM_w == rt_ID_w) & should_stall_ID & reg_we_MEM_w)
+    | ((dst_reg_MEM_w == rs_ID_w) & reg_we_MEM_w);
     
   assign stall_logic_out = ~(should_stall_EX | should_stall_MEM);
       
@@ -594,7 +635,6 @@ module Project(
 
   /*** I/O ***/
   // Create and connect HEX register
-  reg [23:0] HEX_out;
  
   SevenSeg ss5(.OUT(HEX5), .IN(HEX_out[23:20]), .OFF(1'b0));
   SevenSeg ss4(.OUT(HEX4), .IN(HEX_out[19:16]), .OFF(1'b0));
@@ -603,18 +643,21 @@ module Project(
   SevenSeg ss1(.OUT(HEX1), .IN(HEX_out[7:4]), .OFF(1'b0));
   SevenSeg ss0(.OUT(HEX0), .IN(HEX_out[3:0]), .OFF(1'b0));
   
-//  always @ (posedge clk or posedge reset) begin
-//    if(reset)
-//        HEX_out <= 24'hFEDEAD;
-//    else if(wr_mem_MEM_w && (mem_addr_MEM_w == ADDRHEX))
-//        HEX_out <= regval2_EX[HEXBITS-1:0];
-//  end
-
-  // TODO: Write the code for LEDR here
+  always @ (posedge clk or posedge reset) begin
+    if(reset)
+        HEX_out <= 24'hFEDEAD;
+    else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
+        HEX_out <= regval2_EX[HEXBITS-1:0];
+  end
 
   reg [9:0] LEDR_out;
   
-  // ...
+  always @ (posedge clk or posedge reset) begin
+    if(reset)
+        LEDR_out <= 10'b0000000000;
+    else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRLEDR))
+        LEDR_out <= regval2_EX[LEDRBITS-1:0];
+  end
 
   assign LEDR = LEDR_out;
   
@@ -643,7 +686,6 @@ module CONTROL_SIGNAL_GENERATOR(
   output reg         REGWRDSTSEL_OUT
 );
 
-always @ (*) begin
   parameter OP1_ALUR = 6'b000000;
   parameter OP1_BEQ  = 6'b001000;
   parameter OP1_BLT  = 6'b001001;
@@ -656,6 +698,8 @@ always @ (*) begin
   parameter OP1_ANDI = 6'b100100;
   parameter OP1_ORI  = 6'b100101;
   parameter OP1_XORI = 6'b100110;
+
+always @ (*) begin
   
   case (OPCODE1_IN)
     //EXT instructions
@@ -672,7 +716,7 @@ always @ (*) begin
 
     OP1_BEQ : begin
         ALUSRC_OUT = 2'b00;
-        NEWPCSRC_OUT = 2'b10;
+        NEWPCSRC_OUT = 2'b11;
         MEMWE_OUT = 1'b0;
         MEMRE_OUT = 1'b0;
         REGWE_OUT = 1'b0;
@@ -682,7 +726,7 @@ always @ (*) begin
 
     OP1_BLT : begin
         ALUSRC_OUT = 2'b00;
-        NEWPCSRC_OUT = 2'b10;
+        NEWPCSRC_OUT = 2'b11;
         MEMWE_OUT = 1'b0;
         MEMRE_OUT = 1'b0;
         REGWE_OUT = 1'b0;
@@ -692,7 +736,7 @@ always @ (*) begin
 
     OP1_BLE : begin
         ALUSRC_OUT = 2'b00;
-        NEWPCSRC_OUT = 2'b10;
+        NEWPCSRC_OUT = 2'b11;
         MEMWE_OUT = 1'b0;
         MEMRE_OUT = 1'b0;
         REGWE_OUT = 1'b0;
@@ -702,7 +746,7 @@ always @ (*) begin
 
     OP1_BNE : begin
         ALUSRC_OUT = 2'b00;
-        NEWPCSRC_OUT = 2'b10;
+        NEWPCSRC_OUT = 2'b11;
         MEMWE_OUT = 1'b0;
         MEMRE_OUT = 1'b0;
         REGWE_OUT = 1'b0;
