@@ -18,7 +18,7 @@ module Project(
   parameter REGNOBITS = 4;
   parameter REGWORDS  = (1 << REGNOBITS);
   parameter IMMBITS   = 16;
-  parameter STARTPC   = 32'h100;
+  parameter STARTPC   = 32'h00000100;
   parameter ADDRHEX   = 32'hFFFFF000;
   parameter ADDRLEDR  = 32'hFFFFF020;
   parameter ADDRKEY   = 32'hFFFFF080;
@@ -391,16 +391,17 @@ module Project(
             
     end
 
-  always @ (op1_ID or op2_ID or regval1_ID or alu_in_EX_r) begin
-    case (op1_ID)
-        OP1_BEQ : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
-        OP1_BLT : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
-        OP1_BLE : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
-        OP1_BNE : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
-        default : aluout_EX_r = {DBITS{1'b0}};
-    endcase
-
-    if(op1_ID == OP1_ALUR)
+//  always @ (op1_ID or op2_ID or regval1_ID or alu_in_EX_r) begin
+  always @ (*) begin
+    if (op1_ID == OP1_BEQ || op1_ID == OP1_BLT || op1_ID == OP1_BLE || op1_ID == OP1_BNE)
+        case (op1_ID)
+            OP1_BEQ : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
+            OP1_BLT : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
+            OP1_BLE : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
+            OP1_BNE : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
+            default : aluout_EX_r = {DBITS{1'b0}};
+        endcase
+    else if(op1_ID == OP1_ALUR)
         case (op2_ID)
             OP2_EQ     : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
             OP2_LT     : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
@@ -411,9 +412,9 @@ module Project(
             OP2_OR     : aluout_EX_r = regval1_ID | alu_in_EX_r;
             OP2_XOR    : aluout_EX_r = regval1_ID ^ alu_in_EX_r;
             OP2_SUB    : aluout_EX_r = regval1_ID - alu_in_EX_r;
-            OP2_NAND   : aluout_EX_r = (~regval1_ID) | (~alu_in_EX_r);
-            OP2_NOR    : aluout_EX_r = (~regval1_ID) & (~alu_in_EX_r);
-            OP2_NXOR   : aluout_EX_r = regval1_ID ~^ alu_in_EX_r;
+            OP2_NAND   : aluout_EX_r = ~(regval1_ID & alu_in_EX_r);
+            OP2_NOR    : aluout_EX_r = ~(regval1_ID | alu_in_EX_r);
+            OP2_NXOR   : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r);
             OP2_RSHF   : aluout_EX_r = regval1_ID >>> alu_in_EX_r;     // Arithmetic Shift
             OP2_LSHF   : aluout_EX_r = regval1_ID <<< alu_in_EX_r;     // Arithmetic Shift
             default    : aluout_EX_r = {DBITS{1'b0}};
