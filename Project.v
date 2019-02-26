@@ -136,7 +136,7 @@ module Project(
     else
       PC_FE <= PC_FE;
   end
-
+  
   // This is the value of "incremented PC", computed in the FE stage
   assign pcplus_FE = PC_FE + INSTSIZE;
 
@@ -248,7 +248,7 @@ module Project(
   assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
   
   // Specify stall condition
-  assign stall_pipe = stall_pipe_branch | stall_pipe_reg_rd | stall_pipe_mem_rd;
+  assign stall_pipe = (stall_pipe_branch | stall_pipe_reg_rd | stall_pipe_mem_rd);
   
   assign stall_pipe_branch = (op1_ID_w == OP1_BEQ | op1_ID_w == OP1_BLT | op1_ID_w == OP1_BLE | op1_ID_w == OP1_BNE | op1_ID_w == OP1_JAL);
   assign stall_pipe_reg_rd = stall_pipe_reg_rd_rs | (stall_pipe_rt_check & stall_pipe_reg_rd_rt);
@@ -260,6 +260,13 @@ module Project(
   assign stall_pipe_reg_rd_rt = (rt_ID_w == dst_reg_ID_w) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM);
   
   assign stall_pipe_mem_rd = op1_ID_w == OP1_LW && ((op1_ID_w == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w));
+  
+  
+  
+  //assign stall_pipe_reg_rd = ((rs_ID_w == dst_reg_ID_w) || (rs_ID_w == dst_reg_EX) || (rs_ID_w == dst_reg_MEM)) | (((op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW)) & ((rt_ID_w == dst_reg_ID_w) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM)));
+  //assign stall_pipe = ((op1_ID_w == OP1_BEQ | op1_ID_w == OP1_BLT | op1_ID_w == OP1_BLE | op1_ID_w == OP1_BNE | op1_ID_w == OP1_JAL)) | (((rs_ID_w == dst_reg_ID_w) || (rs_ID_w == dst_reg_EX) || (rs_ID_w == dst_reg_MEM)) | (((op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW)) & ((rt_ID_w == dst_reg_ID_w) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM)))) | (op1_ID_w == OP1_LW && ((op1_ID_w == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
+  
+  
 
   // ID_latch
   always @ (posedge clk or posedge reset) begin
@@ -379,9 +386,9 @@ module Project(
   assign mispred_EX_w = br_cond_EX;
   assign pcgood_EX_w = (op1_ID == OP1_JAL)?(regval1_ID + (sxt_imm_ID << 2)):
                        (br_cond_EX)?(PC_ID + (sxt_imm_ID << 2)):
-                       PC_FE; //this case should not matter
+                       PC_FE + INSTSIZE; //this case should not matter
                        
-  assign dst_reg_ID_w = (reg_wr_dst_sel_ID == 0) ? rt_spec_ID : rd_spec_ID;
+  assign dst_reg_ID_w = (reg_wr_dst_sel_ID_w == 0) ? rt_ID_w : rd_ID_w;
   
   // EX_latch
   always @ (posedge clk or posedge reset) begin
