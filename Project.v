@@ -118,6 +118,11 @@ module Project(
   reg [DBITS-1:0] PC_REG;
   wire is_br_ID_w;
   wire is_jmp_ID_w;
+  reg is_nop_FE;
+  reg is_nop_ID;
+  reg is_nop_EX;
+  reg is_nop_MEM;
+  reg mispred_EX;
 
   // I-MEM
   (* ram_init_file = IMEMINITFILE *)
@@ -134,21 +139,25 @@ module Project(
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
       PC_REG <= STARTPC;
-      PC_FE <= STARTPC;
+      PC_FE <= {DBITS{1'b0}};
       end
     else if(mispred_EX_w) begin //use branch or jal target address
       PC_REG <= pcgood_EX_w;
       PC_FE <= pcgood_EX_w;
     end
-    else if(stall_pipe) begin
+    //else if(stall_pipe_branch) begin
+      //PC_REG <= PC_REG;
+      //PC_FE <= PC_FE;
+    //end
+    else if (stall_pipe_reg_rd) begin
       PC_REG <= PC_REG;
       PC_FE <= PC_FE;
     end
-    else if (is_br_ID_w || is_jmp_ID_w) begin
+    //else if (is_br_ID_w || is_jmp_ID_w) begin
         //flush
-        PC_REG <= PC_REG;
-        PC_FE <= {DBITS{1'b0}};
-    end
+        //PC_REG <= PC_REG;
+        //PC_FE <= {DBITS{1'b0}};
+    //end
     else begin
       PC_REG <= pcplus_FE;
       PC_FE <= pcplus_FE;
@@ -163,13 +172,17 @@ module Project(
   always @ (posedge clk or posedge reset) begin
     if(reset) begin
       inst_FE <= {INSTBITS{1'b0}};
+      is_nop_FE <= 1'b0;
     end
     else if (stall_pipe_reg_rd)
         inst_FE <= inst_FE;
-    //else if (mispred_EX_w)
-        //do something
+    else if (mispred_EX_w) begin
+        inst_FE <= {INSTBITS{1'b0}};
+        is_nop_FE <= 1'b1;
+    end
     else
         inst_FE <= inst_FE_w;
+        is_nop_FE <= 1'b0;
   end
 
 
@@ -256,11 +269,8 @@ module Project(
   // You may add or change control signals if needed
   assign is_br_ID_w = (op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE);
   assign is_jmp_ID_w = op1_ID_w == OP1_JAL;
-  //assign rd_mem_ID_w =
-  //assign wr_mem_ID_w =
-  //assign wr_reg_ID_w = 
-   
-    assign mem_addr_ID_w = regval1_ID_w + sxt_imm_ID_w; //for sw/lw
+
+  assign mem_addr_ID_w = regval1_ID_w + sxt_imm_ID_w; //for sw/lw
   
   // Control signal generator
   CONTROL_SIGNAL_GENERATOR control_signal_generator_inst(
@@ -274,6 +284,10 @@ module Project(
 	 .REGWRSRCSEL_OUT(reg_wr_src_sel_ID_w),
 	 .REGWRDSTSEL_OUT(reg_wr_dst_sel_ID_w)
 );
+
+  assign rd_mem_ID_w = mem_re_ID_w;
+  assign wr_mem_ID_w = mem_we_ID_w;
+  assign wr_reg_ID_w = reg_we_ID_w;
   
   assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
   
@@ -318,6 +332,7 @@ module Project(
       op2_ID	 <= {OP2BITS{1'b0}};
       ctrlsig_ID <= 5'b00000;
       inst_ID    <= {INSTBITS{1'b0}};
+      is_nop_ID  <= 1'b0;
     end else if (stall_pipe_reg_rd) begin
           PC_ID	 <= {DBITS{1'b0}};
       rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
@@ -340,6 +355,31 @@ module Project(
       op2_ID	 <= {OP2BITS{1'b0}};
       ctrlsig_ID <= 5'b00000;
       inst_ID    <= {INSTBITS{1'b0}};
+      is_nop_ID  <= 1'b1;
+    end else if (mispred_EX_w) begin
+        //flush
+      PC_ID	 <= {DBITS{1'b0}};
+      rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
+      regval2_ID <= {DBITS{1'b0}}; //RtCont
+      regval1_ID <= {DBITS{1'b0}}; //RsCont
+      sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
+    
+      rd_spec_ID <= {REGNOBITS{1'b0}}; //RdSpec
+      alu_src_ID <= 2'b00; //ALUSrc
+      new_pc_src_ID <= 2'b00; //NewPCSrc
+      mem_we_ID <= 1'b0; //MemWE
+      mem_re_ID <= 1'b0; //MemRE
+      reg_we_ID <= 1'b0; //RegWE
+      reg_wr_src_sel_ID <= 2'b00; //RegWrSrcSel
+      reg_wr_dst_sel_ID <= 1'b0; //RegWrDstSel
+      dst_reg_ID <= {REGNOBITS{1'b0}};
+		
+	  //these are in place of ALUOp
+      op1_ID	 <= {OP1BITS{1'b0}};
+      op2_ID	 <= {OP2BITS{1'b0}};
+      ctrlsig_ID <= 5'b00000;
+      inst_ID    <= {INSTBITS{1'b0}};
+      is_nop_ID  <= 1'b1;
     end else begin
 	   // Specify ID latches
       PC_ID	 <= PC_FE; //PC 
@@ -362,6 +402,7 @@ module Project(
       op2_ID	 <= op2_ID_w;
       ctrlsig_ID <= ctrlsig_ID_w;
       inst_ID    <= inst_FE;
+      is_nop_ID  <= 1'b0;
 
     end
   end
@@ -456,6 +497,7 @@ module Project(
         op1_EX	 <= 6'b000000;
         ctrlsig_EX <= 3'b000;
         inst_EX <= {INSTBITS{1'b0}};
+        is_nop_EX <= 1'b0;
     end else begin
 		// Specify EX latches
 		PC_EX <= PC_ID; //PC
@@ -469,6 +511,7 @@ module Project(
         op1_EX	 <= op1_ID;
         ctrlsig_EX <= ctrlsig_EX_w;
         inst_EX <= inst_ID;
+        is_nop_EX <= is_nop_ID;
     end
   end
   
@@ -533,6 +576,7 @@ module Project(
         reg_wr_src_sel_MEM <= {2{1'b0}};
         ctrlsig_MEM        <= 1'b0;
         inst_MEM           <= {INSTBITS{1'b0}};
+        is_nop_MEM         <= 1'b0;
     end else begin
         PC_MEM             <= PC_MEM_w;
         mem_val_out_MEM    <= mem_val_out_MEM_w;
@@ -542,6 +586,7 @@ module Project(
         reg_wr_src_sel_MEM <= reg_wr_src_sel_MEM_w;
         ctrlsig_MEM        <= ctrlsig_EX[0];
         inst_MEM           <= inst_EX;
+        is_nop_MEM         <= is_nop_EX;
     end
   end
 
