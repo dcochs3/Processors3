@@ -150,8 +150,12 @@ module Project(
             //PC_FE <= PC_FE;
         //end
         else if (stall_pipe_reg_rd) begin
-          PC_REG <= PC_REG;
-          PC_FE <= PC_FE;
+            PC_REG <= PC_REG;
+            PC_FE <= PC_FE;
+        end
+        else if (stall_pipe_mem_rd) begin
+            PC_REG <= PC_REG;
+            PC_FE <= PC_FE;
         end
         //else if (is_br_ID_w || is_jmp_ID_w) begin
             //flush
@@ -179,6 +183,9 @@ module Project(
         else if (mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
+        end
+        else if (stall_pipe_mem_rd) begin
+            inst_FE <= inst_FE;
         end
         else begin
             inst_FE <= inst_FE_w;
@@ -357,6 +364,29 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b1;
+        end else if (stall_pipe_mem_rd) begin
+            PC_ID      <= {DBITS{1'b0}};
+            rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
+            regval2_ID <= {DBITS{1'b0}}; //RtCont
+            regval1_ID <= {DBITS{1'b0}}; //RsCont
+            sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
+
+            rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
+            alu_src_ID        <= 2'b00; //ALUSrc
+            new_pc_src_ID     <= 2'b00; //NewPCSrc
+            mem_we_ID         <= 1'b0; //MemWE
+            mem_re_ID         <= 1'b0; //MemRE
+            reg_we_ID         <= 1'b0; //RegWE
+            reg_wr_src_sel_ID <= 2'b00; //RegWrSrcSel
+            reg_wr_dst_sel_ID <= 1'b0; //RegWrDstSel
+            dst_reg_ID        <= {REGNOBITS{1'b0}};
+
+            //these are in place of ALUOp
+            op1_ID     <= {OP1BITS{1'b0}};
+            op2_ID     <= {OP2BITS{1'b0}};
+            ctrlsig_ID <= 5'b00000;
+            inst_ID    <= {INSTBITS{1'b0}};
+            is_nop_ID  <= 1'b1;
         end else if (mispred_EX_w) begin
             //flush
             PC_ID      <= {DBITS{1'b0}};
@@ -434,7 +464,7 @@ module Project(
 
     always @ (op1_ID or regval1_ID or regval2_ID) begin
         case (op1_ID)
-            OP1_BEQ : br_cond_EX = (regval1_ID == regval2_ID);
+            OP1_BEQ : br_cond_EX = (regval1_ID == regval2_ID); //TO DO: should these be regval1_ID and alu_in_EX_r
             OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
             OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
@@ -500,6 +530,21 @@ end
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
+        end else if (mispred_EX_w) begin
+            //do not latch
+            //flush
+            PC_EX <= {DBITS{1'b0}}; //PC
+            regval2_EX <= {DBITS{1'b0}}; //RtCont
+            aluout_EX <= {DBITS{1'b0}}; //ALUResult
+            dst_reg_EX <= {REGNOBITS{1'b0}}; //DstReg
+            mem_we_EX <= 1'b0; //MemWE
+            mem_re_EX <= 1'b0; //MemRE
+            reg_we_EX <= 1'b0; //RegWE
+            reg_wr_src_sel_EX <= 2'b00; //RegWrSrcSel
+            op1_EX     <= 6'b000000;
+            ctrlsig_EX <= 3'b000;
+            inst_EX <= {INSTBITS{1'b0}};
+            is_nop_EX <= 1'b1;
         end else begin
             // Specify EX latches
             PC_EX <= PC_ID; //PC
@@ -721,7 +766,7 @@ always @ (*) begin
             REGWRDSTSEL_OUT = 1'b1;
         end
 
-            P1_BEQ : begin
+            OP1_BEQ : begin
             ALUSRC_OUT = 2'b00;
             NEWPCSRC_OUT = 2'b11;
             MEMWE_OUT = 1'b0;
@@ -731,7 +776,7 @@ always @ (*) begin
             REGWRDSTSEL_OUT = 1'b0; //don't care, default
         end
  
-        OP1_BLT : begin
+            OP1_BLT : begin
             ALUSRC_OUT = 2'b00;
             NEWPCSRC_OUT = 2'b11;
             MEMWE_OUT = 1'b0;
@@ -741,7 +786,7 @@ always @ (*) begin
             REGWRDSTSEL_OUT = 1'b0; //don't care, default
         end
     
-            P1_BLE : begin
+            OP1_BLE : begin
             ALUSRC_OUT = 2'b00;
             NEWPCSRC_OUT = 2'b11;
             MEMWE_OUT = 1'b0;
