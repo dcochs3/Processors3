@@ -604,12 +604,12 @@ end
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign rd_val_MEM_w = (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
                                     dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
     always @ (posedge clk) begin
-        if(wr_mem_MEM_w)
+        if(mem_we_MEM_w)
             dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]] <= regval2_EX;
     end
 
