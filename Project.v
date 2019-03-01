@@ -449,7 +449,7 @@ module Project(
     reg br_cond_EX;
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
     reg [DBITS-1:0] regval2_EX;
-    wire [DBITS-1:0] alu_in_EX_r;
+    wire signed [DBITS-1:0] alu_in_EX_r;
 
     reg [DBITS-1:0] PC_EX;
     reg [0:0] mem_we_EX;
