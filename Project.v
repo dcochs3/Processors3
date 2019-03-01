@@ -462,15 +462,15 @@ module Project(
                         sxt_imm_ID << 2; //take sxtImm x 4
                         //there should never be a case where alu_src_ID == 11
 
-    always @ (op1_ID or regval1_ID or regval2_ID) begin
+    always @ (*) begin
         case (op1_ID)
             OP1_BEQ : br_cond_EX = (regval1_ID == regval2_ID); //TO DO: should these be regval1_ID and alu_in_EX_r
             OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
             OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
             //OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
-        default : br_cond_EX = 1'b0;
-    endcase
+            default : br_cond_EX = 1'b0;
+        endcase
     if(op1_ID == OP1_ALUR)
         case (op2_ID)
             OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
@@ -702,15 +702,19 @@ end
     always @ (posedge clk or posedge reset) begin
         if(reset)
             HEX_out <= 24'hFEDEAD;
-        else if(wr_mem_MEM_w && (mem_addr_MEM_w == ADDRHEX))
+        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
             HEX_out <= regval2_EX[HEXBITS-1:0];
     end
 
-    // TODO: Write the code for LEDR here
-
+    //Write the code for LEDR here
     reg [9:0] LEDR_out;
-
-    // ...
+    
+    always @ (posedge clk or posedge reset) begin
+        if(reset)
+            LEDR_out <= 10'b0000000000;
+        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRLEDR))
+            LEDR_out <= regval2_EX[LEDRBITS-1:0];
+    end
 
     assign LEDR = LEDR_out;
 
