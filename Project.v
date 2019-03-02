@@ -18,14 +18,14 @@ module Project(
     parameter REGNOBITS = 4;
     parameter REGWORDS  = (1 << REGNOBITS);
     parameter IMMBITS   = 16;
-    parameter STARTPC   = 32'h00000100;
+    parameter STARTPC   = 32'h100;
     parameter ADDRHEX   = 32'hFFFFF000;
     parameter ADDRLEDR  = 32'hFFFFF020;
     parameter ADDRKEY   = 32'hFFFFF080;
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "Test.mif";
+    parameter IMEMINITFILE = "test.mif";
     //parameter IMEMINITFILE = "fmedian2.mif";
 
     parameter IMEMADDRBITS = 16;
@@ -33,7 +33,7 @@ module Project(
     parameter IMEMWORDS    = (1 << (IMEMADDRBITS - IMEMWORDBITS));
     parameter DMEMADDRBITS = 16;
     parameter DMEMWORDBITS = 2;
-    parameter DMEMWORDS	   = (1 << (DMEMADDRBITS - DMEMWORDBITS));
+    parameter DMEMWORDS    = (1 << (DMEMADDRBITS - DMEMWORDBITS));
  
     parameter OP1BITS  = 6;
     parameter OP1_ALUR = 6'b000000;
@@ -468,40 +468,40 @@ module Project(
             OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
             OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
-            //OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
+            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
             default : br_cond_EX = 1'b0;
         endcase
-    if (op1_ID == OP1_ALUR)
-        case (op2_ID)
-            OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
-            OP2_LT   : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
-            OP2_LE   : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
-            OP2_NE   : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
+        if (op1_ID == OP1_ALUR)
+            case (op2_ID)
+                OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
+                OP2_LT   : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
+                OP2_LE   : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
+                OP2_NE   : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
 
-            OP2_ADD  : aluout_EX_r = regval1_ID + alu_in_EX_r;
-            OP2_AND  : aluout_EX_r = regval1_ID & alu_in_EX_r;
-            OP2_OR   : aluout_EX_r = regval1_ID | alu_in_EX_r;
-            OP2_XOR  : aluout_EX_r = regval1_ID ^ alu_in_EX_r; //xor
-            OP2_SUB  : aluout_EX_r = regval1_ID - alu_in_EX_r;
-            OP2_NAND : aluout_EX_r = ~(regval1_ID & alu_in_EX_r); //nand
-            OP2_NOR  : aluout_EX_r = ~(regval1_ID | alu_in_EX_r); //nor
-            OP2_NXOR : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r); //xnor
-            OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
-            OP2_LSHF : aluout_EX_r = regval1_ID <<< alu_in_EX_r; //arithmetic shift
-            
-            default     : aluout_EX_r = {DBITS{1'b0}};
-        endcase
-    else if (op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
-        aluout_EX_r = regval1_ID + alu_in_EX_r;
-    else if (op1_ID == OP1_ANDI)
-        aluout_EX_r = regval1_ID & alu_in_EX_r;
-    else if (op1_ID == OP1_ORI)
-        aluout_EX_r = regval1_ID | alu_in_EX_r;
-    else if (op1_ID == OP1_XORI)
-        aluout_EX_r = regval1_ID ^ alu_in_EX_r;
-    else
-        aluout_EX_r = {DBITS{1'b0}};
-end
+                OP2_ADD  : aluout_EX_r = regval1_ID + alu_in_EX_r;
+                OP2_AND  : aluout_EX_r = regval1_ID & alu_in_EX_r;
+                OP2_OR   : aluout_EX_r = regval1_ID | alu_in_EX_r;
+                OP2_XOR  : aluout_EX_r = regval1_ID ^ alu_in_EX_r; //xor
+                OP2_SUB  : aluout_EX_r = regval1_ID - alu_in_EX_r;
+                OP2_NAND : aluout_EX_r = ~(regval1_ID & alu_in_EX_r); //nand
+                OP2_NOR  : aluout_EX_r = ~(regval1_ID | alu_in_EX_r); //nor
+                OP2_NXOR : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r); //xnor
+                OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
+                OP2_LSHF : aluout_EX_r = regval1_ID <<< alu_in_EX_r; //arithmetic shift
+                
+                default     : aluout_EX_r = {DBITS{1'b0}};
+            endcase
+        else if (op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
+            aluout_EX_r = regval1_ID + alu_in_EX_r;
+        else if (op1_ID == OP1_ANDI)
+            aluout_EX_r = regval1_ID & alu_in_EX_r;
+        else if (op1_ID == OP1_ORI)
+            aluout_EX_r = regval1_ID | alu_in_EX_r;
+        else if (op1_ID == OP1_XORI)
+            aluout_EX_r = regval1_ID ^ alu_in_EX_r;
+        else
+            aluout_EX_r = {DBITS{1'b0}};
+    end
 
     assign is_br_EX_w = ctrlsig_ID[4];
     assign is_jmp_EX_w = ctrlsig_ID[3];
@@ -604,12 +604,12 @@ end
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign rd_val_MEM_w = (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
                                     dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
     always @ (posedge clk) begin
-        if(wr_mem_MEM_w)
+        if(mem_we_MEM_w)
             dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]] <= regval2_EX;
     end
 
@@ -636,7 +636,6 @@ end
             is_nop_MEM         <= is_nop_EX;
         end
     end
-
 
     /*** WRITE BACK STAGE ***/
 
@@ -706,9 +705,11 @@ end
             HEX_out <= regval2_EX[HEXBITS-1:0];
     end
 
-    //Write the code for LEDR here
+
+    // Write the code for LEDR here
+
     reg [9:0] LEDR_out;
-    
+
     always @ (posedge clk or posedge reset) begin
         if(reset)
             LEDR_out <= 10'b0000000000;
