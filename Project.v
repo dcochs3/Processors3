@@ -25,7 +25,7 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "Test.mif";
+    parameter IMEMINITFILE = "test.mif";
     //parameter IMEMINITFILE = "fmedian2.mif";
 
     parameter IMEMADDRBITS = 16;
@@ -468,7 +468,8 @@ module Project(
             OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
             OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
-            //OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
+            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
+            // OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
         default : br_cond_EX = 1'b0;
     endcase
     if(op1_ID == OP1_ALUR)
