@@ -18,7 +18,7 @@ module Project(
     parameter REGNOBITS = 4;
     parameter REGWORDS  = (1 << REGNOBITS);
     parameter IMMBITS   = 16;
-    parameter STARTPC   = 32'h100;
+    parameter STARTPC   = 32'h00000100;
     parameter ADDRHEX   = 32'hFFFFF000;
     parameter ADDRLEDR  = 32'hFFFFF020;
     parameter ADDRKEY   = 32'hFFFFF080;
@@ -449,7 +449,7 @@ module Project(
     reg br_cond_EX;
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
     reg [DBITS-1:0] regval2_EX;
-    wire [DBITS-1:0] alu_in_EX_r;
+    wire signed [DBITS-1:0] alu_in_EX_r;
 
     reg [DBITS-1:0] PC_EX;
     reg [0:0] mem_we_EX;
@@ -471,7 +471,7 @@ module Project(
             //OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
             default : br_cond_EX = 1'b0;
         endcase
-    if(op1_ID == OP1_ALUR)
+    if (op1_ID == OP1_ALUR)
         case (op2_ID)
             OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
             OP2_LT   : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
@@ -491,13 +491,13 @@ module Project(
             
             default     : aluout_EX_r = {DBITS{1'b0}};
         endcase
-    else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
+    else if (op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
         aluout_EX_r = regval1_ID + alu_in_EX_r;
-    else if(op1_ID == OP1_ANDI)
+    else if (op1_ID == OP1_ANDI)
         aluout_EX_r = regval1_ID & alu_in_EX_r;
-    else if(op1_ID == OP1_ORI)
+    else if (op1_ID == OP1_ORI)
         aluout_EX_r = regval1_ID | alu_in_EX_r;
-    else if(op1_ID == OP1_XORI)
+    else if (op1_ID == OP1_XORI)
         aluout_EX_r = regval1_ID ^ alu_in_EX_r;
     else
         aluout_EX_r = {DBITS{1'b0}};
