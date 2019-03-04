@@ -25,8 +25,8 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "test.mif";
-    //parameter IMEMINITFILE = "fmedian2.mif";
+    parameter IMEMINITFILE = "Test.mif";
+//    parameter IMEMINITFILE = "simple_jal.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -130,9 +130,9 @@ module Project(
 
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
-    initial begin
-        $readmemh("test.hex", imem);
-    end
+//    initial begin
+//        $readmemh("simple_jal.hex", imem);
+//    end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
 
@@ -302,17 +302,25 @@ module Project(
     // Specify stall condition
     assign stall_pipe = (stall_pipe_branch || stall_pipe_reg_rd || stall_pipe_mem_rd);
 
+    // 1 if the instruction currently in ID stage is a BR or JAL type instruction
     assign stall_pipe_branch = (op1_ID_w != 6'b000000) && (op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_JAL);
 
+    // 1 if we need to stall for a register read
     assign stall_pipe_reg_rd = stall_pipe_reg_rd_rs || (stall_pipe_rt_check && stall_pipe_reg_rd_rt);
 
+    // 1 if the instruction currently in ID stage uses the Rs of any instruction further along in the pipeline as an operand
     assign stall_pipe_reg_rd_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX) || (rs_ID_w == dst_reg_MEM));
 
+    // 1 if the instruction currently in ID stage uses Rt as an operand (need to check because only EXT and BR type instructions uses Rt as an operand)
     assign stall_pipe_rt_check = (op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW);
 
+    // 1 if the instruction currently in ID stage uses the Rt of any instruction further along in the pipeline as an operand
     assign stall_pipe_reg_rd_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM)); //(rt_ID_w == dst_reg_ID_w) || 
 
-    assign stall_pipe_mem_rd = ((mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w != 6'b000000)) && (op1_ID_w == OP1_LW && ((op1_ID_w == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
+    // 1 if the instruction currently in ID stage is a LW and we need to stall for a SW that is currently in EX stage or MEM stage
+    assign stall_pipe_mem_rd = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
+
+//    assign stall_pipe_mem_rd = ((mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w != 6'b000000)) && (op1_ID_w == OP1_LW && ((op1_ID_w == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
  
     assign dst_reg_ID_w = (reg_wr_dst_sel_ID_w == 0) ? rt_ID_w : rd_ID_w;
 
@@ -468,8 +476,8 @@ module Project(
             OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
             OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
-            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
-            // OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
+//            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
+//            OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
         default : br_cond_EX = 1'b0;
     endcase
     if(op1_ID == OP1_ALUR)
@@ -531,7 +539,7 @@ end
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
-        end else if (mispred_EX_w) begin
+        end else if (mispred_EX_w && op1_ID != OP1_JAL) begin
             //do not latch
             //flush
             PC_EX <= {DBITS{1'b0}}; //PC
