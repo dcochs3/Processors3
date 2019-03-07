@@ -132,6 +132,7 @@ module Project(
     // during simulation using Model-Sim
     initial begin
         $readmemh("fmedian2.hex", imem);
+        $readmemh("fmedian2.hex", dmem);
     end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -496,7 +497,7 @@ module Project(
             OP2_NOR  : aluout_EX_r = ~(regval1_ID | alu_in_EX_r); //nor
             OP2_NXOR : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r); //xnor
             OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
-            OP2_LSHF : aluout_EX_r = regval1_ID <<< alu_in_EX_r; //arithmetic shift
+            OP2_LSHF : aluout_EX_r = regval1_ID << alu_in_EX_r; //arithmetic shift
             
             default     : aluout_EX_r = {DBITS{1'b0}};
         endcase
