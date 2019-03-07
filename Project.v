@@ -25,13 +25,8 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-<<<<<<< HEAD
     //parameter IMEMINITFILE = "test.mif";
     parameter IMEMINITFILE = "fmedian2.mif";
-=======
-    parameter IMEMINITFILE = "Test.mif";
-//    parameter IMEMINITFILE = "simple_jal.mif";
->>>>>>> kipp
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -135,15 +130,9 @@ module Project(
 
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
-<<<<<<< HEAD
     initial begin
         $readmemh("fmedian2.hex", imem);
     end
-=======
-//    initial begin
-//        $readmemh("simple_jal.hex", imem);
-//    end
->>>>>>> kipp
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
 
@@ -487,10 +476,6 @@ module Project(
             OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
             OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
-<<<<<<< HEAD
-            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
-            default : br_cond_EX = 1'b0;
-=======
 //            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
 //            OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
         default : br_cond_EX = 1'b0;
@@ -514,7 +499,6 @@ module Project(
             OP2_LSHF : aluout_EX_r = regval1_ID <<< alu_in_EX_r; //arithmetic shift
             
             default     : aluout_EX_r = {DBITS{1'b0}};
->>>>>>> kipp
         endcase
         if (op1_ID == OP1_ALUR)
             case (op2_ID)
