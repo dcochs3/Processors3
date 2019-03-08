@@ -25,7 +25,7 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    //parameter IMEMINITFILE = "test.mif";
+//    parameter IMEMINITFILE = "Test.mif";
     parameter IMEMINITFILE = "fmedian2.mif";
 
     parameter IMEMADDRBITS = 16;
@@ -254,9 +254,13 @@ module Project(
 
     // TODO: Specify control signals such as is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, etc.
     //control signal wires
+    wire [1:0] alu_src_ID_w;
+    wire [1:0] new_pc_src_ID_w;
+    wire [0:0] mem_we_ID_w;
+    wire [0:0] mem_re_ID_w;
+    wire [0:0] reg_we_ID_w;
     wire [1:0] reg_wr_src_sel_ID_w;
     wire [0:0] reg_wr_dst_sel_ID_w;
-    wire [1:0] alu_src_ID_w;
 
     //Buffer Registers
     reg [DBITS-1:0] sxt_imm_ID;
@@ -264,6 +268,7 @@ module Project(
     reg [REGNOBITS-1:0] rd_spec_ID; //RdSpec
     //Control signals
     reg [1:0] alu_src_ID; //ALUSrc (2 bits)
+    reg [1:0] new_pc_src_ID; //NewPCSrc (2 bits)
     reg [0:0] mem_we_ID; //MemWE (1 bit)
     reg [0:0] mem_re_ID; //MemRE (1 bit)
     reg [0:0] reg_we_ID; //RegWE (1 bit)
@@ -276,22 +281,53 @@ module Project(
 
     assign mem_addr_ID_w = regval1_ID_w + sxt_imm_ID_w; //for sw/lw
 
-    assign rd_mem_ID_w = (op1_ID_w == OP1_LW); //1 on LW, 0 otherwise
-    assign wr_mem_ID_w = (op1_ID_w == OP1_SW); //1 on SW, 0 otherwise
-    assign wr_reg_ID_w = ((op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_JAL) || (op1_ID_w == OP1_LW) ||
-                         (op1_ID_w == OP1_ADDI) || (op1_ID_w == OP1_ANDI) || (op1_ID_w == OP1_ORI) ||
-                         (op1_ID_w == OP1_XORI));
-                         
-    assign alu_src_ID_w = (op1_ID_w == OP1_JAL) ? 2'b10 :
-                          ((op1_ID_w == OP1_LW) || (op1_ID_w == OP1_SW) || (op1_ID_w == OP1_ADDI) || (op1_ID_w == OP1_ANDI) || (op1_ID_w == OP1_ORI) || (op1_ID_w == OP1_XORI)) ? 2'b01 :
-                          2'b00;
-                         
-    assign reg_wr_src_sel_ID_w = (op1_ID_w == OP1_LW) ? 2'b01 :
-                                 ((op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_ADDI) || (op1_ID_w == OP1_ANDI) || (op1_ID_w == OP1_ORI) || (op1_ID_w == OP1_XORI)) ? 2'b10 :
-                                 2'b00;
 
-    assign reg_wr_dst_sel_ID_w = (op1_ID_w == OP1_ALUR); //1 if ALUR, 0 otherwise
+    // Assign control signals (replaced control signal generator)
+    assign alu_src_ID_w        = {(op1_ID_w == OP1_JAL),
+                                 ((op1_ID_w == OP1_LW)
+                                 || (op1_ID_w == OP1_SW)
+                                 || (op1_ID_w == OP1_ADDI)
+                                 || (op1_ID_w == OP1_ANDI)
+                                 || (op1_ID_w == OP1_ORI)
+                                 || (op1_ID_w == OP1_XORI))};
+   
+    assign new_pc_src_ID_w     = {((op1_ID_w == OP1_BEQ)
+                                 || (op1_ID_w == OP1_BLT)
+                                 || (op1_ID_w == OP1_BLE)
+                                 || (op1_ID_w == OP1_BNE)),
+                                 ((op1_ID_w == OP1_BEQ)
+                                 || (op1_ID_w == OP1_BLT)
+                                 || (op1_ID_w == OP1_BLE)
+                                 || (op1_ID_w == OP1_BNE)
+                                 || (op1_ID_w == OP1_JAL))};
     
+    assign mem_we_ID_w         = (inst_FE != {DBITS{1'b0}}) && (op1_ID_w == OP1_SW);
+    
+    assign mem_re_ID_w         = (inst_FE != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW);
+    
+    assign reg_we_ID_w         = (inst_FE != {DBITS{1'b0}}) &&
+                                 ((op1_ID_w == OP1_ALUR)
+                                 || (op1_ID_w == OP1_JAL)
+                                 || (op1_ID_w == OP1_LW)
+                                 || (op1_ID_w == OP1_ADDI)
+                                 || (op1_ID_w == OP1_ANDI)
+                                 || (op1_ID_w == OP1_ORI)
+                                 || (op1_ID_w == OP1_XORI));
+                                 
+    assign reg_wr_src_sel_ID_w = {((op1_ID_w == OP1_ALUR)
+                                 || (op1_ID_w == OP1_ADDI)
+                                 || (op1_ID_w == OP1_ANDI)
+                                 || (op1_ID_w == OP1_ORI)
+                                 || (op1_ID_w == OP1_XORI)),
+                                 (op1_ID_w == OP1_LW)};
+    
+    assign reg_wr_dst_sel_ID_w = (inst_FE != {DBITS{1'b0}}) && (op1_ID_w == OP1_ALUR);
+
+            
+    assign rd_mem_ID_w = mem_re_ID_w;
+    assign wr_mem_ID_w = mem_we_ID_w;
+    assign wr_reg_ID_w = reg_we_ID_w;
+
     assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
     // Specify stall condition
@@ -330,6 +366,7 @@ module Project(
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
             alu_src_ID        <= 2'b00; //ALUSrc
+            new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
             mem_re_ID         <= 1'b0; //MemRE
             reg_we_ID         <= 1'b0; //RegWE
@@ -352,6 +389,7 @@ module Project(
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
             alu_src_ID        <= 2'b00; //ALUSrc
+            new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
             mem_re_ID         <= 1'b0; //MemRE
             reg_we_ID         <= 1'b0; //RegWE
@@ -374,6 +412,7 @@ module Project(
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
             alu_src_ID        <= 2'b00; //ALUSrc
+            new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
             mem_re_ID         <= 1'b0; //MemRE
             reg_we_ID         <= 1'b0; //RegWE
@@ -397,6 +436,7 @@ module Project(
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
             alu_src_ID        <= 2'b00; //ALUSrc
+            new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
             mem_re_ID         <= 1'b0; //MemRE
             reg_we_ID         <= 1'b0; //RegWE
@@ -418,12 +458,13 @@ module Project(
             regval1_ID <= regval1_ID_w; //RsCont
             sxt_imm_ID <= sxt_imm_ID_w; //sxtImm
         
-            alu_src_ID <= alu_src_ID_w;
             dst_reg_ID        <= dst_reg_ID_w;
             rd_spec_ID        <= rd_ID_w; //RdSpec
-            mem_we_ID         <= wr_mem_ID_w; //MemWE
-            mem_re_ID         <= rd_mem_ID_w; //MemRE
-            reg_we_ID         <= wr_reg_ID_w; //RegWE
+            alu_src_ID        <= alu_src_ID_w; //ALUSrc
+            new_pc_src_ID     <= new_pc_src_ID_w; //NewPCSrc
+            mem_we_ID         <= mem_we_ID_w; //MemWE
+            mem_re_ID         <= mem_re_ID_w; //MemRE
+            reg_we_ID         <= reg_we_ID_w; //RegWE
             reg_wr_src_sel_ID <= reg_wr_src_sel_ID_w; //RegWrSrcSel
             reg_wr_dst_sel_ID <= reg_wr_dst_sel_ID_w; //RegWrDstSel
         
@@ -490,37 +531,17 @@ module Project(
             
             default     : aluout_EX_r = {DBITS{1'b0}};
         endcase
-        if (op1_ID == OP1_ALUR)
-            case (op2_ID)
-                OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
-                OP2_LT   : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
-                OP2_LE   : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
-                OP2_NE   : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
-
-                OP2_ADD  : aluout_EX_r = regval1_ID + alu_in_EX_r;
-                OP2_AND  : aluout_EX_r = regval1_ID & alu_in_EX_r;
-                OP2_OR   : aluout_EX_r = regval1_ID | alu_in_EX_r;
-                OP2_XOR  : aluout_EX_r = regval1_ID ^ alu_in_EX_r; //xor
-                OP2_SUB  : aluout_EX_r = regval1_ID - alu_in_EX_r;
-                OP2_NAND : aluout_EX_r = ~(regval1_ID & alu_in_EX_r); //nand
-                OP2_NOR  : aluout_EX_r = ~(regval1_ID | alu_in_EX_r); //nor
-                OP2_NXOR : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r); //xnor
-                OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
-                OP2_LSHF : aluout_EX_r = regval1_ID <<< alu_in_EX_r; //arithmetic shift
-                
-                default     : aluout_EX_r = {DBITS{1'b0}};
-            endcase
-        else if (op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
-            aluout_EX_r = regval1_ID + alu_in_EX_r;
-        else if (op1_ID == OP1_ANDI)
-            aluout_EX_r = regval1_ID & alu_in_EX_r;
-        else if (op1_ID == OP1_ORI)
-            aluout_EX_r = regval1_ID | alu_in_EX_r;
-        else if (op1_ID == OP1_XORI)
-            aluout_EX_r = regval1_ID ^ alu_in_EX_r;
-        else
-            aluout_EX_r = {DBITS{1'b0}};
-    end
+    else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
+        aluout_EX_r = regval1_ID + alu_in_EX_r;
+    else if(op1_ID == OP1_ANDI)
+        aluout_EX_r = regval1_ID & alu_in_EX_r;
+    else if(op1_ID == OP1_ORI)
+        aluout_EX_r = regval1_ID | alu_in_EX_r;
+    else if(op1_ID == OP1_XORI)
+        aluout_EX_r = regval1_ID ^ alu_in_EX_r;
+    else
+        aluout_EX_r = {DBITS{1'b0}};
+end
 
     assign is_br_EX_w = ctrlsig_ID[4];
     assign is_jmp_EX_w = ctrlsig_ID[3];
@@ -656,6 +677,7 @@ module Project(
         end
     end
 
+
     /*** WRITE BACK STAGE ***/
 
     // Wires
@@ -699,9 +721,9 @@ module Project(
             regs[15] <= {DBITS{1'b0}};
         end else if(reg_we_WB_w) begin
             case (reg_wr_src_sel_WB_w)
-                WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w; //00
-                WRITE_MEM_DATA: regs[dst_reg_WB_w] <= mem_val_out_WB_w; //01
-                WRITE_ALUOUT:   regs[dst_reg_WB_w] <= aluout_WB_w; //10
+                WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w;
+                WRITE_MEM_DATA: regs[dst_reg_WB_w] <= mem_val_out_WB_w;
+                WRITE_ALUOUT:   regs[dst_reg_WB_w] <= aluout_WB_w;
             endcase
         end
     end
@@ -724,8 +746,7 @@ module Project(
             HEX_out <= regval2_EX[HEXBITS-1:0];
     end
 
-
-    // Write the code for LEDR here
+    // TODO: Write the code for LEDR here
 
     reg [9:0] LEDR_out;
 
