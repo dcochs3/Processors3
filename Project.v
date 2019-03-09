@@ -169,19 +169,19 @@ module Project(
             PC_FE <= PC_OLD;
             PC_OLD <= PC_OLD;
         end
-        else if ((inst_FE_w[31:26] == OP1_BEQ) || (inst_FE_w[31:26] == OP1_BLT) || (inst_FE_w[31:26] == OP1_BLE) || (inst_FE_w[31:26] == OP1_BNE)) begin
-            //calculate the branch target address
-            PC_FE <= (pcplus_FE + (sxt_imm_FE_w << 2));
-            PC_REG <= (pcplus_FE + (sxt_imm_FE_w << 2));
-            //save the old pc
-            PC_OLD <= pcplus_FE;
-        end
         else if (is_jmp_ID_w) begin
             //use the JAL target address forwarded from decode
             //TODO: there was some PC value that went 1 latch that needs to be flushed ???
             PC_FE <= jal_target_ID_w;
             PC_REG <= jal_target_ID_w;
             PC_OLD <= PC_OLD;
+        end
+        else if ((inst_FE_w[31:26] == OP1_BEQ) || (inst_FE_w[31:26] == OP1_BLT) || (inst_FE_w[31:26] == OP1_BLE) || (inst_FE_w[31:26] == OP1_BNE)) begin
+            //calculate the branch target address
+            PC_FE <= (pcplus_FE + (sxt_imm_FE_w << 2));
+            PC_REG <= (pcplus_FE + (sxt_imm_FE_w << 2));
+            //save the old pc
+            PC_OLD <= pcplus_FE;
         end
         else begin
             PC_REG <= pcplus_FE;
