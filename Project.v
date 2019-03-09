@@ -146,10 +146,6 @@ module Project(
             PC_REG <= pcgood_EX_w;
             PC_FE <= pcgood_EX_w;
         end
-        //else if(stall_pipe_branch) begin
-            //PC_REG <= PC_REG;
-            //PC_FE <= PC_FE;
-        //end
         else if (stall_pipe_reg_rd) begin
             PC_REG <= PC_REG;
             PC_FE <= PC_FE;
