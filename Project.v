@@ -163,6 +163,12 @@ module Project(
             PC_FE <= PC_FE;
             PC_OLD <= PC_OLD;
         end
+        else if (branch_not_taken_EX_w) begin
+            //this means we want to really use the old PC + 4
+            PC_REG <= PC_OLD;
+            PC_FE <= PC_OLD;
+            PC_OLD <= PC_OLD;
+        end
         else if ((inst_FE_w[31:26] == OP1_BEQ) || (inst_FE_w[31:26] == OP1_BLT) || (inst_FE_w[31:26] == OP1_BLE) || (inst_FE_w[31:26] == OP1_BNE)) begin
             //calculate the branch target address
             PC_FE <= (pcplus_FE + (sxt_imm_FE_w << 2));
@@ -177,18 +183,6 @@ module Project(
             PC_REG <= jal_target_ID_w;
             PC_OLD <= PC_OLD;
         end
-        else if(branch_not_taken_EX_w) begin
-            //this means we want to really use the old PC + 4
-            //TODO (evaluate is JAL should be included in the mispred_EX_w)
-            PC_REG <= PC_OLD;
-            PC_FE <= PC_OLD;
-            PC_OLD <= PC_OLD;
-        end
-        //else if (is_br_ID_w || is_jmp_ID_w) begin
-            //flush
-            //PC_REG <= PC_REG;
-            //PC_FE <= {DBITS{1'b0}};
-        //end
         else begin
             PC_REG <= pcplus_FE;
             PC_FE <= pcplus_FE;
