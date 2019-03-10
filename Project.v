@@ -179,15 +179,14 @@ module Project(
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b0;
         end
-        else if (stall_pipe_reg_rd)
-            inst_FE <= inst_FE;
         else if (mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
         end
-        else if (stall_pipe_mem_rd) begin
+        else if (stall_pipe_reg_rd)
             inst_FE <= inst_FE;
-        end
+        else if (stall_pipe_mem_rd)
+            inst_FE <= inst_FE;
         else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
