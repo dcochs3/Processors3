@@ -97,9 +97,11 @@ module Project(
     wire [DBITS-1:0] inst_FE_w;
     wire stall_pipe;
     wire mispred_EX_w;
+    wire branch_not_taken_EX_w;
 
     wire [DBITS-1:0] pcgood_EX_w;
     reg [DBITS-1:0] PC_FE;
+    reg [DBITS-1:0] PC_OLD;
     reg [INSTBITS-1:0] inst_FE;
 
     wire stall_pipe_branch;
@@ -123,6 +125,10 @@ module Project(
     reg is_nop_EX;
     reg is_nop_MEM;
     reg mispred_EX;
+    
+    //branch prediction related wires
+    wire [DBITS-1:0] sxt_imm_FE_w;
+    wire [DBITS-1:0] jal_target_ID_w;
 
     // I-MEM
     (* ram_init_file = IMEMINITFILE *)
@@ -136,36 +142,51 @@ module Project(
     end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
+    
+    //BRANCH PREDICTION
+    //sign extend the immediate value for branch target address
+    SXT fesxt (.IN(inst_FE_w[23:8]), .OUT(sxt_imm_FE_w));
 
     always @ (posedge clk or posedge reset) begin
         if(reset) begin
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
+            PC_OLD <= STARTPC;
         end
-        else if(mispred_EX_w) begin //use branch or jal target address
-            PC_REG <= pcgood_EX_w;
-            PC_FE <= pcgood_EX_w;
+        else if (branch_not_taken_EX_w) begin
+            //this means we want to really use the old PC + 4
+            PC_REG <= PC_OLD;
+            PC_FE <= PC_OLD;
+            PC_OLD <= PC_OLD;
         end
-        //else if(stall_pipe_branch) begin
-            //PC_REG <= PC_REG;
-            //PC_FE <= PC_FE;
-        //end
+        else if (is_jmp_ID_w) begin
+            //use the JAL target address forwarded from decode
+            //TODO: there was some PC value that went 1 latch that needs to be flushed ???
+            PC_FE <= jal_target_ID_w;
+            PC_REG <= jal_target_ID_w;
+            PC_OLD <= PC_OLD;
+        end
         else if (stall_pipe_reg_rd) begin
             PC_REG <= PC_REG;
             PC_FE <= PC_FE;
+            PC_OLD <= PC_OLD;
         end
         else if (stall_pipe_mem_rd) begin
             PC_REG <= PC_REG;
             PC_FE <= PC_FE;
+            PC_OLD <= PC_OLD;
         end
-        //else if (is_br_ID_w || is_jmp_ID_w) begin
-            //flush
-            //PC_REG <= PC_REG;
-            //PC_FE <= {DBITS{1'b0}};
-        //end
+        else if ((inst_FE_w[31:26] == OP1_BEQ) || (inst_FE_w[31:26] == OP1_BLT) || (inst_FE_w[31:26] == OP1_BLE) || (inst_FE_w[31:26] == OP1_BNE)) begin
+            //calculate the branch target address
+            PC_FE <= (pcplus_FE + (sxt_imm_FE_w << 2));
+            PC_REG <= (pcplus_FE + (sxt_imm_FE_w << 2));
+            //save the old pc
+            PC_OLD <= pcplus_FE;
+        end
         else begin
             PC_REG <= pcplus_FE;
             PC_FE <= pcplus_FE;
+            PC_OLD <= PC_OLD;
         end
     end
 
@@ -179,14 +200,21 @@ module Project(
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b0;
         end
-        else if (mispred_EX_w) begin
+        else if (branch_not_taken_EX_w) begin
+            //if branch was not actually taken, we need to flush
+            inst_FE <= {INSTBITS{1'b0}};
+            is_nop_FE <= 1'b1;
+        end
+        else if (is_jmp_ID_w) begin
+            //if the instruction is a JAL, we need to flush
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
         end
         else if (stall_pipe_reg_rd)
             inst_FE <= inst_FE;
-        else if (stall_pipe_mem_rd)
+        else if (stall_pipe_mem_rd) begin
             inst_FE <= inst_FE;
+        end
         else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
@@ -279,6 +307,9 @@ module Project(
     assign is_jmp_ID_w = op1_ID_w == OP1_JAL;
 
     assign mem_addr_ID_w = regval1_ID_w + sxt_imm_ID_w; //for sw/lw
+    
+    //for JAL "prediction"
+    assign jal_target_ID_w = regval1_ID_w + (sxt_imm_ID_w << 2);
 
 
     // Assign control signals (replaced control signal generator)
@@ -350,9 +381,8 @@ module Project(
     // 1 if the instruction currently in ID stage is a LW and we need to stall for a SW that is currently in EX stage or MEM stage
     assign stall_pipe_mem_rd = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
 
-//    assign stall_pipe_mem_rd = ((mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w != 6'b000000)) && (op1_ID_w == OP1_LW && ((op1_ID_w == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
- 
     assign dst_reg_ID_w = (reg_wr_dst_sel_ID_w == 0) ? rt_ID_w : rd_ID_w;
+    
 
     // ID_latch
     always @ (posedge clk or posedge reset) begin
@@ -425,7 +455,7 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b1;
-        end else if (mispred_EX_w) begin
+        end else if (branch_not_taken_EX_w) begin      
             //flush
             PC_ID      <= {DBITS{1'b0}};
             rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
@@ -508,7 +538,7 @@ module Project(
             OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
 //            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
 //            OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
-        default : br_cond_EX = 1'b0;
+        default : br_cond_EX = 1'b1;
     endcase
     if(op1_ID == OP1_ALUR)
         case (op2_ID)
@@ -549,10 +579,7 @@ end
     assign ctrlsig_EX_w = {rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
     // Specify signals such as mispred_EX_w, pcgood_EX_w
-    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL);
-    assign pcgood_EX_w = (op1_ID == OP1_JAL)?(regval1_ID + (sxt_imm_ID << 2)):
-                       (br_cond_EX)?(PC_ID + (sxt_imm_ID << 2)):
-                       PC_FE + INSTSIZE; //this case should not matter
+    assign branch_not_taken_EX_w = (~br_cond_EX); //if the branch was not taken
                        
     // EX_latch
     always @ (posedge clk or posedge reset) begin
@@ -569,7 +596,7 @@ end
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
-        end else if (mispred_EX_w && op1_ID != OP1_JAL) begin
+        end else if (branch_not_taken_EX_w) begin
             //do not latch
             //flush
             PC_EX <= {DBITS{1'b0}}; //PC
