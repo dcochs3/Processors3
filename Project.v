@@ -25,8 +25,8 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "Test.mif";
-    //parameter IMEMINITFILE = "fmedian2.mif";
+//    parameter IMEMINITFILE = "Test.mif";
+    parameter IMEMINITFILE = "fmedian2.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -131,8 +131,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
     initial begin
-        $readmemh("test.hex", imem);
-        //$readmemh("fmedian2.hex", dmem);
+        $readmemh("fmedian2.hex", imem);
+        $readmemh("fmedian2.hex", dmem);
     end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -146,6 +146,10 @@ module Project(
             PC_REG <= pcgood_EX_w;
             PC_FE <= pcgood_EX_w;
         end
+        //else if(stall_pipe_branch) begin
+            //PC_REG <= PC_REG;
+            //PC_FE <= PC_FE;
+        //end
         else if (stall_pipe_reg_rd) begin
             PC_REG <= PC_REG;
             PC_FE <= PC_FE;
@@ -175,15 +179,14 @@ module Project(
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b0;
         end
-        else if (stall_pipe_reg_rd)
-            inst_FE <= inst_FE;
         else if (mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
         end
-        else if (stall_pipe_mem_rd) begin
+        else if (stall_pipe_reg_rd)
             inst_FE <= inst_FE;
-        end
+        else if (stall_pipe_mem_rd)
+            inst_FE <= inst_FE;
         else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
@@ -717,9 +720,9 @@ end
             regs[15] <= {DBITS{1'b0}};
         end else if(reg_we_WB_w) begin
             case (reg_wr_src_sel_WB_w)
-                WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w; //00
-                WRITE_MEM_DATA: regs[dst_reg_WB_w] <= mem_val_out_WB_w; //01
-                WRITE_ALUOUT:   regs[dst_reg_WB_w] <= aluout_WB_w; //10
+                WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w;
+                WRITE_MEM_DATA: regs[dst_reg_WB_w] <= mem_val_out_WB_w;
+                WRITE_ALUOUT:   regs[dst_reg_WB_w] <= aluout_WB_w;
             endcase
         end
     end
