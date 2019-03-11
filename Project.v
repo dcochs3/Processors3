@@ -25,8 +25,8 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-//    parameter IMEMINITFILE = "Test.mif";
-    parameter IMEMINITFILE = "fmedian2.mif";
+    parameter IMEMINITFILE = "Test.mif";
+    //parameter IMEMINITFILE = "fmedian2.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -95,19 +95,34 @@ module Project(
     wire [DBITS-1:0] pcplus_FE;
     wire [DBITS-1:0] pcpred_FE;
     wire [DBITS-1:0] inst_FE_w;
-    wire stall_pipe;
     wire mispred_EX_w;
 
     wire [DBITS-1:0] pcgood_EX_w;
     reg [DBITS-1:0] PC_FE;
     reg [INSTBITS-1:0] inst_FE;
 
-    wire stall_pipe_branch;
-    wire stall_pipe_reg_rd;
-    wire stall_pipe_reg_rd_rs;
-    wire stall_pipe_rt_check;
-    wire stall_pipe_reg_rd_rt;
-    wire stall_pipe_mem_rd;
+//    wire stall_pipe_reg_rd;
+//    wire stall_pipe_reg_rd_rs;
+//    wire stall_pipe_rt_check;
+//    wire stall_pipe_reg_rd_rt;
+//    wire stall_pipe_mem_rd;
+    
+    wire data_dep_rs;
+    wire forward_rs_from_EX;
+    wire forward_rs_from_MEM;
+    wire data_dep_rt_check;
+    wire data_dep_rt;
+    wire forward_rt_from_EX;
+    wire forward_rt_from_MEM;
+    wire data_dep_mem;
+    wire forward_mem_cont_from_EX;
+    wire forward_mem_cont_from_MEM;
+    wire stall_lw_EX;
+    wire forward_lw_to_rs_from_MEM;
+    wire forward_lw_to_rt_from_MEM;
+    wire [DBITS-1:0] mem_val_out_MEM_w;
+    reg [DBITS-1:0] regval2_EX;
+    
     wire [REGNOBITS-1:0] dst_reg_ID_w;
     reg [REGNOBITS-1:0] dst_reg_EX;
     reg [REGNOBITS-1:0] dst_reg_MEM;
@@ -131,8 +146,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
     initial begin
-        $readmemh("fmedian2.hex", imem);
-        $readmemh("fmedian2.hex", dmem);
+        $readmemh("test.hex", imem);
+        //$readmemh("fmedian2.hex", dmem);
     end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -146,23 +161,14 @@ module Project(
             PC_REG <= pcgood_EX_w;
             PC_FE <= pcgood_EX_w;
         end
-        //else if(stall_pipe_branch) begin
-            //PC_REG <= PC_REG;
-            //PC_FE <= PC_FE;
-        //end
-        else if (stall_pipe_reg_rd) begin
+        else if (stall_lw_EX) begin
             PC_REG <= PC_REG;
             PC_FE <= PC_FE;
         end
-        else if (stall_pipe_mem_rd) begin
-            PC_REG <= PC_REG;
-            PC_FE <= PC_FE;
-        end
-        //else if (is_br_ID_w || is_jmp_ID_w) begin
-            //flush
-            //PC_REG <= PC_REG;
-            //PC_FE <= {DBITS{1'b0}};
-        //end
+//        else if (stall_pipe_mem_rd) begin
+//            PC_REG <= PC_REG;
+//            PC_FE <= PC_FE;
+//        end
         else begin
             PC_REG <= pcplus_FE;
             PC_FE <= pcplus_FE;
@@ -183,10 +189,10 @@ module Project(
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
         end
-        else if (stall_pipe_reg_rd)
+        else if (stall_lw_EX)
             inst_FE <= inst_FE;
-        else if (stall_pipe_mem_rd)
-            inst_FE <= inst_FE;
+//        else if (stall_pipe_mem_rd)
+//            inst_FE <= inst_FE;
         else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
@@ -245,8 +251,21 @@ module Project(
     assign imm_ID_w = inst_FE[23:8];
 
     // Read register values
-    assign regval1_ID_w = regs[rs_ID_w];
-    assign regval2_ID_w = regs[rt_ID_w];
+    //FORWARDING    
+    assign regval1_ID_w = (forward_lw_to_rs_from_MEM) ? mem_val_out_MEM_w :
+                          (forward_rs_from_EX) ? aluout_EX_r :
+                          (forward_rs_from_MEM) ? aluout_EX : 
+                          regs[rs_ID_w];
+                          
+    assign regval2_ID_w = (forward_mem_cont_from_EX) ? regval2_ID :
+                          (forward_mem_cont_from_MEM) ? regval2_EX :
+                          (forward_lw_to_rt_from_MEM) ? mem_val_out_MEM_w :
+                          (forward_rt_from_EX) ? aluout_EX_r :
+                          (forward_rt_from_MEM) ? aluout_EX : 
+                          regs[rt_ID_w];
+                          
+    //assign regval1_ID_w = regs[rs_ID_w];
+    //assign regval2_ID_w = regs[rt_ID_w];
 
     // Sign extension
     SXT mysxt (.IN(imm_ID_w), .OUT(sxt_imm_ID_w));
@@ -329,31 +348,66 @@ module Project(
 
     assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
-    // Specify stall condition
-    assign stall_pipe = (stall_pipe_branch || stall_pipe_reg_rd || stall_pipe_mem_rd);
+//    // 1 if we need to stall for a register read
+//    assign stall_pipe_reg_rd = stall_pipe_reg_rd_rs || (stall_pipe_rt_check && stall_pipe_reg_rd_rt);
+//
+//    // 1 if the instruction currently in ID stage uses the Rs of any instruction further along in the pipeline as an operand
+//    assign stall_pipe_reg_rd_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX) || (rs_ID_w == dst_reg_MEM));
+//
+//    // 1 if the instruction currently in ID stage uses Rt as an operand (need to check because only EXT and BR type instructions uses Rt as an operand)
+//    assign stall_pipe_rt_check = (op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW);
+//
+//    // 1 if the instruction currently in ID stage uses the Rt of any instruction further along in the pipeline as an operand
+//    assign stall_pipe_reg_rd_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM)); //(rt_ID_w == dst_reg_ID_w) || 
+//
+//    // 1 if the instruction currently in ID stage is a LW and we need to stall for a SW that is currently in EX stage or MEM stage
+//    assign stall_pipe_mem_rd = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
 
-    // 1 if the instruction currently in ID stage is a BR or JAL type instruction
-    assign stall_pipe_branch = (op1_ID_w != 6'b000000) && (op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_JAL);
+    
+    
+    //DATA FORWARDING
+    //if the instruction currently in ID stage reads from the destination register of the instruction currently in execute
+    //we need to forward (use "aluout_EX_r" as your read register value)
 
-    // 1 if we need to stall for a register read
-    assign stall_pipe_reg_rd = stall_pipe_reg_rd_rs || (stall_pipe_rt_check && stall_pipe_reg_rd_rt);
-
-    // 1 if the instruction currently in ID stage uses the Rs of any instruction further along in the pipeline as an operand
-    assign stall_pipe_reg_rd_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX) || (rs_ID_w == dst_reg_MEM));
+    // 1 if the instruction currently in ID stage uses the Rs of the instruction in EX as an operand
+    assign data_dep_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX));
+    
+    //if there is a data dependency
+    //determine where we need to forward from
+    assign forward_rs_from_EX = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_ID));
+    
+    assign forward_rs_from_MEM = data_dep_rs && (rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_EX);
 
     // 1 if the instruction currently in ID stage uses Rt as an operand (need to check because only EXT and BR type instructions uses Rt as an operand)
-    assign stall_pipe_rt_check = (op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW);
+    assign data_dep_rt_check = (op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW);
 
-    // 1 if the instruction currently in ID stage uses the Rt of any instruction further along in the pipeline as an operand
-    assign stall_pipe_reg_rd_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM)); //(rt_ID_w == dst_reg_ID_w) || 
+    // 1 if the instruction currently in ID stage uses the Rt of the instruction in EX as an operand
+    assign data_dep_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX));
+    
+    //determine where we need to forward from
+    assign forward_rt_from_EX = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_ID));
+    
+    assign forward_rt_from_MEM = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_EX));
 
-    // 1 if the instruction currently in ID stage is a LW and we need to stall for a SW that is currently in EX stage or MEM stage
-    assign stall_pipe_mem_rd = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
+    // 1 if the instruction currently in ID stage is a LW and we need the value being written to memory from a SW that is currently in EX stage or MEM stage
+    assign data_dep_mem = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
 
-//    assign stall_pipe_mem_rd = ((mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w != 6'b000000)) && (op1_ID_w == OP1_LW && ((op1_ID_w == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
- 
+   //if mem rd, just forward the reg contents
+    assign forward_mem_cont_from_EX = data_dep_mem && ((mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && (op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w)));
+    
+    assign forward_mem_cont_from_MEM = data_dep_mem && ((mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
+    
+    //CASES WHERE WE STILL HAVE TO STALL
+    //WE HAVE TO WAIT FOR INFO TO BE FORWARDED FROM MEM STAGE
+    //if there is a data dependency (as above) AND the instruction in EX is a LW
+    assign stall_lw_EX = (forward_rs_from_EX || forward_rt_from_EX) && (op1_ID == OP1_LW);
+    
+    assign forward_lw_to_rs_from_MEM = forward_rs_from_MEM && (op1_EX == OP1_LW);
+
+    assign forward_lw_to_rt_from_MEM = forward_rt_from_MEM && (op1_EX == OP1_LW);
+   
     assign dst_reg_ID_w = (reg_wr_dst_sel_ID_w == 0) ? rt_ID_w : rd_ID_w;
-
+    
     // ID_latch
     always @ (posedge clk or posedge reset) begin
         if(reset) begin
@@ -379,7 +433,7 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b0;
-        end else if (stall_pipe_reg_rd) begin
+        end else if (stall_lw_EX) begin
             PC_ID      <= {DBITS{1'b0}};
             rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
             regval2_ID <= {DBITS{1'b0}}; //RtCont
@@ -402,29 +456,29 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b1;
-        end else if (stall_pipe_mem_rd) begin
-            PC_ID      <= {DBITS{1'b0}};
-            rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
-            regval2_ID <= {DBITS{1'b0}}; //RtCont
-            regval1_ID <= {DBITS{1'b0}}; //RsCont
-            sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
-
-            rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
-            alu_src_ID        <= 2'b00; //ALUSrc
-            new_pc_src_ID     <= 2'b00; //NewPCSrc
-            mem_we_ID         <= 1'b0; //MemWE
-            mem_re_ID         <= 1'b0; //MemRE
-            reg_we_ID         <= 1'b0; //RegWE
-            reg_wr_src_sel_ID <= 2'b00; //RegWrSrcSel
-            reg_wr_dst_sel_ID <= 1'b0; //RegWrDstSel
-            dst_reg_ID        <= {REGNOBITS{1'b0}};
-
-            //these are in place of ALUOp
-            op1_ID     <= {OP1BITS{1'b0}};
-            op2_ID     <= {OP2BITS{1'b0}};
-            ctrlsig_ID <= 5'b00000;
-            inst_ID    <= {INSTBITS{1'b0}};
-            is_nop_ID  <= 1'b1;
+//        end else if (stall_pipe_mem_rd) begin
+//            PC_ID      <= {DBITS{1'b0}};
+//            rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
+//            regval2_ID <= {DBITS{1'b0}}; //RtCont
+//            regval1_ID <= {DBITS{1'b0}}; //RsCont
+//            sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
+//
+//            rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
+//            alu_src_ID        <= 2'b00; //ALUSrc
+//            new_pc_src_ID     <= 2'b00; //NewPCSrc
+//            mem_we_ID         <= 1'b0; //MemWE
+//            mem_re_ID         <= 1'b0; //MemRE
+//            reg_we_ID         <= 1'b0; //RegWE
+//            reg_wr_src_sel_ID <= 2'b00; //RegWrSrcSel
+//            reg_wr_dst_sel_ID <= 1'b0; //RegWrDstSel
+//            dst_reg_ID        <= {REGNOBITS{1'b0}};
+//
+//            //these are in place of ALUOp
+//            op1_ID     <= {OP1BITS{1'b0}};
+//            op2_ID     <= {OP2BITS{1'b0}};
+//            ctrlsig_ID <= 5'b00000;
+//            inst_ID    <= {INSTBITS{1'b0}};
+//            is_nop_ID  <= 1'b1;
         end else if (mispred_EX_w) begin
             //flush
             PC_ID      <= {DBITS{1'b0}};
@@ -486,7 +540,6 @@ module Project(
     //reg [INSTBITS-1:0] inst_EX; /* This is for debugging */
     reg br_cond_EX;
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
-    reg [DBITS-1:0] regval2_EX;
     wire signed [DBITS-1:0] alu_in_EX_r;
 
     reg [DBITS-1:0] PC_EX;
@@ -609,7 +662,6 @@ end
 
     wire [DBITS-1:0] PC_MEM_w;
     wire [DBITS-1:0] mem_addr_MEM_w;
-    wire [DBITS-1:0] mem_val_out_MEM_w;
     wire mem_we_MEM_w;
     wire mem_re_MEM_w;
     wire [DBITS-1:0] aluout_MEM_w;
