@@ -25,8 +25,8 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "Test.mif";
-    //parameter IMEMINITFILE = "fmedian2.mif";
+    //parameter IMEMINITFILE = "Test.mif";
+    parameter IMEMINITFILE = "fmedian2.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -146,8 +146,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
     initial begin
-        $readmemh("test.hex", imem);
-        //$readmemh("fmedian2.hex", dmem);
+        $readmemh("fmedian2.hex", imem);
+        $readmemh("fmedian2.hex", dmem);
     end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -165,10 +165,6 @@ module Project(
             PC_REG <= PC_REG;
             PC_FE <= PC_FE;
         end
-//        else if (stall_pipe_mem_rd) begin
-//            PC_REG <= PC_REG;
-//            PC_FE <= PC_FE;
-//        end
         else begin
             PC_REG <= pcplus_FE;
             PC_FE <= pcplus_FE;
@@ -191,8 +187,6 @@ module Project(
         end
         else if (stall_lw_EX)
             inst_FE <= inst_FE;
-//        else if (stall_pipe_mem_rd)
-//            inst_FE <= inst_FE;
         else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
@@ -368,15 +362,19 @@ module Project(
     //DATA FORWARDING
     //if the instruction currently in ID stage reads from the destination register of the instruction currently in execute
     //we need to forward (use "aluout_EX_r" as your read register value)
-
+    
     // 1 if the instruction currently in ID stage uses the Rs of the instruction in EX as an operand
     assign data_dep_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX));
     
     //if there is a data dependency
     //determine where we need to forward from
-    assign forward_rs_from_EX = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_ID));
+    assign forward_rs_from_EX = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_ID))
+                                && ((op1_ID != OP1_SW) && (op1_ID != OP1_BEQ) && (op1_ID != OP1_BLT)
+                                && (op1_ID != OP1_BLE) && (op1_ID != OP1_BNE));
     
-    assign forward_rs_from_MEM = data_dep_rs && (rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_EX);
+    assign forward_rs_from_MEM = data_dep_rs && (rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_EX)
+                                 && ((op1_EX != OP1_SW) && (op1_EX != OP1_BEQ) && (op1_EX != OP1_BLT)
+                                 && (op1_EX != OP1_BLE) && (op1_EX != OP1_BNE));
 
     // 1 if the instruction currently in ID stage uses Rt as an operand (need to check because only EXT and BR type instructions uses Rt as an operand)
     assign data_dep_rt_check = (op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW);
@@ -385,9 +383,13 @@ module Project(
     assign data_dep_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX));
     
     //determine where we need to forward from
-    assign forward_rt_from_EX = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_ID));
+    assign forward_rt_from_EX = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_ID))
+                                && ((op1_ID != OP1_SW) && (op1_ID != OP1_BEQ) && (op1_ID != OP1_BLT)
+                                && (op1_ID != OP1_BLE) && (op1_ID != OP1_BNE));
     
-    assign forward_rt_from_MEM = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_EX));
+    assign forward_rt_from_MEM = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_EX))
+                                 && ((op1_EX != OP1_SW) && (op1_EX != OP1_BEQ) && (op1_EX != OP1_BLT)
+                                 && (op1_EX != OP1_BLE) && (op1_EX != OP1_BNE));
 
     // 1 if the instruction currently in ID stage is a LW and we need the value being written to memory from a SW that is currently in EX stage or MEM stage
     assign data_dep_mem = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
@@ -581,7 +583,7 @@ module Project(
             OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
             OP2_LSHF : aluout_EX_r = regval1_ID << alu_in_EX_r; //arithmetic shift
             
-            default     : aluout_EX_r = {DBITS{1'b0}};
+            default  : aluout_EX_r = {DBITS{1'b0}};
         endcase
     else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
         aluout_EX_r = regval1_ID + alu_in_EX_r;
