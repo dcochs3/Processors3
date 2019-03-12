@@ -531,48 +531,6 @@ module Project(
                          (op1_EX_w == OP1_XORI) ? (regval1_ID ^ alu_in_EX_r) :
                          {DBITS{1'b0}};
 
-//    always @ (*) begin
-//        case (op1_ID)
-//            OP1_BEQ : br_cond_EX = (regval1_ID == regval2_ID); //TO DO: should these be regval1_ID and alu_in_EX_r
-//            OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
-//            OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
-//            OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
-////            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
-////            OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
-//        default : br_cond_EX = 1'b0;
-//    endcase
-//    if(op1_ID == OP1_ALUR)
-//        case (op2_ID)
-//            OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
-//            OP2_LT   : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
-//            OP2_LE   : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
-//            OP2_NE   : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
-//
-//            OP2_ADD  : aluout_EX_r = regval1_ID + alu_in_EX_r;
-//            OP2_AND  : aluout_EX_r = regval1_ID & alu_in_EX_r;
-//            OP2_OR   : aluout_EX_r = regval1_ID | alu_in_EX_r;
-//            OP2_XOR  : aluout_EX_r = regval1_ID ^ alu_in_EX_r; //xor
-//            OP2_SUB  : aluout_EX_r = regval1_ID - alu_in_EX_r;
-//            OP2_NAND : aluout_EX_r = ~(regval1_ID & alu_in_EX_r); //nand
-//            OP2_NOR  : aluout_EX_r = ~(regval1_ID | alu_in_EX_r); //nor
-//            OP2_NXOR : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r); //xnor
-//            OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
-//            OP2_LSHF : aluout_EX_r = regval1_ID << alu_in_EX_r; //arithmetic shift
-//            
-//            default     : aluout_EX_r = {DBITS{1'b0}};
-//        endcase
-//    else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
-//        aluout_EX_r = regval1_ID + alu_in_EX_r;
-//    else if(op1_ID == OP1_ANDI)
-//        aluout_EX_r = regval1_ID & alu_in_EX_r;
-//    else if(op1_ID == OP1_ORI)
-//        aluout_EX_r = regval1_ID | alu_in_EX_r;
-//    else if(op1_ID == OP1_XORI)
-//        aluout_EX_r = regval1_ID ^ alu_in_EX_r;
-//    else
-//        aluout_EX_r = {DBITS{1'b0}};
-//end
-
     assign is_br_EX_w = ctrlsig_ID[4];
     assign is_jmp_EX_w = ctrlsig_ID[3];
     assign wr_reg_EX_w = ctrlsig_ID[0];
