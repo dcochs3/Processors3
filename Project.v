@@ -113,7 +113,7 @@ module Project(
     wire [REGNOBITS-1:0] dst_reg_ID_w;
     reg [REGNOBITS-1:0] dst_reg_EX;
     reg [REGNOBITS-1:0] dst_reg_MEM;
-    reg signed [DBITS-1:0] aluout_EX_r;
+    wire signed [DBITS-1:0] aluout_EX_r;
     reg [5:0] op1_EX;
     reg [DBITS-1:0] aluout_EX;
     reg [REGNOBITS-1:0] dst_reg_ID;
@@ -361,10 +361,10 @@ module Project(
     assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
     // Specify stall condition
-    assign stall_pipe = (stall_pipe_branch || stall_pipe_reg_rd || stall_pipe_mem_rd);
+//    assign stall_pipe = (stall_pipe_branch || stall_pipe_reg_rd || stall_pipe_mem_rd);
 
     // 1 if the instruction currently in ID stage is a BR or JAL type instruction
-    assign stall_pipe_branch = (op1_ID_w != 6'b000000) && (op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_JAL);
+//    assign stall_pipe_branch = (op1_ID_w != 6'b000000) && (op1_ID_w == OP1_BEQ || op1_ID_w == OP1_BLT || op1_ID_w == OP1_BLE || op1_ID_w == OP1_BNE || op1_ID_w == OP1_JAL);
 
     // 1 if we need to stall for a register read
     assign stall_pipe_reg_rd = stall_pipe_reg_rd_rs || (stall_pipe_rt_check && stall_pipe_reg_rd_rt);
@@ -512,9 +512,11 @@ module Project(
 
     wire is_br_EX_w;
     wire is_jmp_EX_w;
+    wire [OP1BITS-1:0] op1_EX_w;
+    wire [OP2BITS-1:0] op2_EX_w;
 
     //reg [INSTBITS-1:0] inst_EX; /* This is for debugging */
-    reg br_cond_EX;
+    wire br_cond_EX;
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
     reg [DBITS-1:0] regval2_EX;
     wire signed [DBITS-1:0] alu_in_EX_r;
@@ -524,53 +526,40 @@ module Project(
     reg [0:0] mem_re_EX;
     reg [0:0] reg_we_EX;
     reg [1:0] reg_wr_src_sel_EX;
+    
+    assign op1_EX_w = op1_ID;
+    assign op2_EX_w = op2_ID;
 
     assign alu_in_EX_r = (alu_src_ID == 00) ? regval2_ID : //take RtCont
                         (alu_src_ID == 01) ? sxt_imm_ID : //take sxtImm
                         sxt_imm_ID << 2; //take sxtImm x 4
                         //there should never be a case where alu_src_ID == 11
 
-    always @ (*) begin
-        case (op1_ID)
-            OP1_BEQ : br_cond_EX = (regval1_ID == regval2_ID); //TO DO: should these be regval1_ID and alu_in_EX_r
-            OP1_BLT : br_cond_EX = (regval1_ID < regval2_ID);
-            OP1_BLE : br_cond_EX = (regval1_ID <= regval2_ID);
-            OP1_BNE : br_cond_EX = (regval1_ID != regval2_ID);
-//            OP1_JAL : regs[rt_spec_ID] <= PC_ID;
-//            OP1_JAL : br_cond_EX = 1'b1; //JAL is always taken aka always "mispredicted"
-        default : br_cond_EX = 1'b1;
-    endcase
-    if(op1_ID == OP1_ALUR)
-        case (op2_ID)
-            OP2_EQ   : aluout_EX_r = {31'b0, regval1_ID == alu_in_EX_r};
-            OP2_LT   : aluout_EX_r = {31'b0, regval1_ID < alu_in_EX_r};
-            OP2_LE   : aluout_EX_r = {31'b0, regval1_ID <= alu_in_EX_r};
-            OP2_NE   : aluout_EX_r = {31'b0, regval1_ID != alu_in_EX_r};
-
-            OP2_ADD  : aluout_EX_r = regval1_ID + alu_in_EX_r;
-            OP2_AND  : aluout_EX_r = regval1_ID & alu_in_EX_r;
-            OP2_OR   : aluout_EX_r = regval1_ID | alu_in_EX_r;
-            OP2_XOR  : aluout_EX_r = regval1_ID ^ alu_in_EX_r; //xor
-            OP2_SUB  : aluout_EX_r = regval1_ID - alu_in_EX_r;
-            OP2_NAND : aluout_EX_r = ~(regval1_ID & alu_in_EX_r); //nand
-            OP2_NOR  : aluout_EX_r = ~(regval1_ID | alu_in_EX_r); //nor
-            OP2_NXOR : aluout_EX_r = ~(regval1_ID ^ alu_in_EX_r); //xnor
-            OP2_RSHF : aluout_EX_r = regval1_ID >>> alu_in_EX_r; //arithmetic shift
-            OP2_LSHF : aluout_EX_r = regval1_ID << alu_in_EX_r; //arithmetic shift
-            
-            default     : aluout_EX_r = {DBITS{1'b0}};
-        endcase
-    else if(op1_ID == OP1_LW || op1_ID == OP1_SW || op1_ID == OP1_ADDI)
-        aluout_EX_r = regval1_ID + alu_in_EX_r;
-    else if(op1_ID == OP1_ANDI)
-        aluout_EX_r = regval1_ID & alu_in_EX_r;
-    else if(op1_ID == OP1_ORI)
-        aluout_EX_r = regval1_ID | alu_in_EX_r;
-    else if(op1_ID == OP1_XORI)
-        aluout_EX_r = regval1_ID ^ alu_in_EX_r;
-    else
-        aluout_EX_r = {DBITS{1'b0}};
-end
+    assign br_cond_EX = (op1_EX_w == OP1_BEQ) ? (regval1_ID == regval2_ID) :
+                        (op1_EX_w == OP1_BLT) ? (regval1_ID < regval2_ID)  :
+                        (op1_EX_w == OP1_BLE) ? (regval1_ID <= regval2_ID) :
+                        (op1_EX_w == OP1_BNE) ? (regval1_ID != regval2_ID) :
+                        1'b0;
+    
+    assign aluout_EX_r = (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_EQ) ? {31'b0, regval1_ID == alu_in_EX_r} :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_LT) ? {31'b0, regval1_ID < alu_in_EX_r} :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_LE) ? {31'b0, regval1_ID <= alu_in_EX_r} :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_NE) ? {31'b0, regval1_ID != alu_in_EX_r} :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_ADD) ? (regval1_ID + alu_in_EX_r) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_AND) ? (regval1_ID & alu_in_EX_r) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_OR) ? (regval1_ID | alu_in_EX_r) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_XOR) ? (regval1_ID ^ alu_in_EX_r) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_SUB) ? (regval1_ID - alu_in_EX_r) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_NAND) ? (~(regval1_ID & alu_in_EX_r)) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_NOR) ? (~(regval1_ID | alu_in_EX_r)) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_NXOR) ? (~(regval1_ID ^ alu_in_EX_r)) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_LSHF) ? (regval1_ID << alu_in_EX_r) :
+                         (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_RSHF) ? (regval1_ID >>> alu_in_EX_r) :
+                         (op1_EX_w == OP1_LW || op1_EX_w == OP1_SW || op1_EX_w == OP1_ADDI) ? (regval1_ID + alu_in_EX_r) :
+                         (op1_EX_w == OP1_ANDI) ? (regval1_ID & alu_in_EX_r) :
+                         (op1_EX_w == OP1_ORI) ? (regval1_ID | alu_in_EX_r) :
+                         (op1_EX_w == OP1_XORI) ? (regval1_ID ^ alu_in_EX_r) :
+                         {DBITS{1'b0}};
 
     assign is_br_EX_w = ctrlsig_ID[4];
     assign is_jmp_EX_w = ctrlsig_ID[3];
@@ -632,7 +621,6 @@ end
     //*** MEM STAGE ***//
 
     wire rd_mem_MEM_w;
-    wire wr_mem_MEM_w;
 
     wire [DBITS-1:0] PC_MEM_w;
     wire [DBITS-1:0] mem_addr_MEM_w;
@@ -666,7 +654,6 @@ end
     assign dst_reg_MEM_w = dst_reg_EX;
 
     assign rd_mem_MEM_w = ctrlsig_EX[2];
-    assign wr_mem_MEM_w = ctrlsig_EX[1];
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
@@ -685,7 +672,7 @@ end
             mem_val_out_MEM    <= {DBITS{1'b0}};
             aluout_MEM         <= {DBITS{1'b0}};
             dst_reg_MEM        <= {REGNOBITS{1'b0}};
-            reg_we_MEM         <= {2{1'b0}};
+            reg_we_MEM         <= 1'b0;
             reg_wr_src_sel_MEM <= {2{1'b0}};
             ctrlsig_MEM        <= 1'b0;
             inst_MEM           <= {INSTBITS{1'b0}};
