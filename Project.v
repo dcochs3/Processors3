@@ -100,13 +100,7 @@ module Project(
     wire [DBITS-1:0] pcgood_EX_w;
     reg [DBITS-1:0] PC_FE;
     reg [INSTBITS-1:0] inst_FE;
-
-//    wire stall_pipe_reg_rd;
-//    wire stall_pipe_reg_rd_rs;
-//    wire stall_pipe_rt_check;
-//    wire stall_pipe_reg_rd_rt;
-//    wire stall_pipe_mem_rd;
-    
+   
     wire data_dep_rs;
     wire forward_rs_from_EX;
     wire forward_rs_from_MEM;
@@ -157,7 +151,8 @@ module Project(
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
         end
-        else if(mispred_EX_w) begin //use branch or jal target address
+        else if(mispred_EX_w) begin
+            //use branch or jal target address
             PC_REG <= pcgood_EX_w;
             PC_FE <= pcgood_EX_w;
         end
@@ -205,8 +200,6 @@ module Project(
     wire [DBITS-1:0] regval1_ID_w;
     wire [DBITS-1:0] regval2_ID_w;
     wire [DBITS-1:0] sxt_imm_ID_w;
-    //wire is_br_ID_w;
-    //wire is_jmp_ID_w;
     wire rd_mem_ID_w;
     wire wr_mem_ID_w;
     wire wr_reg_ID_w;
@@ -258,13 +251,11 @@ module Project(
                           (forward_rt_from_MEM) ? aluout_EX : 
                           regs[rt_ID_w];
                           
-    //assign regval1_ID_w = regs[rs_ID_w];
-    //assign regval2_ID_w = regs[rt_ID_w];
 
     // Sign extension
     SXT mysxt (.IN(imm_ID_w), .OUT(sxt_imm_ID_w));
 
-    // TODO: Specify control signals such as is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, etc.
+    // Specify control signals such as is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, etc.
     //control signal wires
     wire [1:0] alu_src_ID_w;
     wire [1:0] new_pc_src_ID_w;
@@ -340,24 +331,7 @@ module Project(
     assign wr_mem_ID_w = mem_we_ID_w;
     assign wr_reg_ID_w = reg_we_ID_w;
 
-    assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
-
-//    // 1 if we need to stall for a register read
-//    assign stall_pipe_reg_rd = stall_pipe_reg_rd_rs || (stall_pipe_rt_check && stall_pipe_reg_rd_rt);
-//
-//    // 1 if the instruction currently in ID stage uses the Rs of any instruction further along in the pipeline as an operand
-//    assign stall_pipe_reg_rd_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX) || (rs_ID_w == dst_reg_MEM));
-//
-//    // 1 if the instruction currently in ID stage uses Rt as an operand (need to check because only EXT and BR type instructions uses Rt as an operand)
-//    assign stall_pipe_rt_check = (op1_ID_w == OP1_ALUR) || (op1_ID_w == OP1_BEQ) || (op1_ID_w == OP1_BLT) || (op1_ID_w == OP1_BLE) || (op1_ID_w == OP1_BNE) || (op1_ID_w == OP1_SW);
-//
-//    // 1 if the instruction currently in ID stage uses the Rt of any instruction further along in the pipeline as an operand
-//    assign stall_pipe_reg_rd_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX) || (rt_ID_w == dst_reg_MEM)); //(rt_ID_w == dst_reg_ID_w) || 
-//
-//    // 1 if the instruction currently in ID stage is a LW and we need to stall for a SW that is currently in EX stage or MEM stage
-//    assign stall_pipe_mem_rd = (mem_addr_ID_w != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW && ((op1_ID == OP1_SW && aluout_EX_r == mem_addr_ID_w) || (op1_EX == OP1_SW && aluout_EX == mem_addr_ID_w)));
-
-    
+    assign ctrlsig_ID_w = {is_br_ID_w, is_jmp_ID_w, rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};   
     
     //DATA FORWARDING
     //if the instruction currently in ID stage reads from the destination register of the instruction currently in execute
@@ -458,29 +432,6 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b1;
-//        end else if (stall_pipe_mem_rd) begin
-//            PC_ID      <= {DBITS{1'b0}};
-//            rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
-//            regval2_ID <= {DBITS{1'b0}}; //RtCont
-//            regval1_ID <= {DBITS{1'b0}}; //RsCont
-//            sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
-//
-//            rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
-//            alu_src_ID        <= 2'b00; //ALUSrc
-//            new_pc_src_ID     <= 2'b00; //NewPCSrc
-//            mem_we_ID         <= 1'b0; //MemWE
-//            mem_re_ID         <= 1'b0; //MemRE
-//            reg_we_ID         <= 1'b0; //RegWE
-//            reg_wr_src_sel_ID <= 2'b00; //RegWrSrcSel
-//            reg_wr_dst_sel_ID <= 1'b0; //RegWrDstSel
-//            dst_reg_ID        <= {REGNOBITS{1'b0}};
-//
-//            //these are in place of ALUOp
-//            op1_ID     <= {OP1BITS{1'b0}};
-//            op2_ID     <= {OP2BITS{1'b0}};
-//            ctrlsig_ID <= 5'b00000;
-//            inst_ID    <= {INSTBITS{1'b0}};
-//            is_nop_ID  <= 1'b1;
         end else if (mispred_EX_w) begin
             //flush
             PC_ID      <= {DBITS{1'b0}};
@@ -529,19 +480,15 @@ module Project(
             ctrlsig_ID <= ctrlsig_ID_w;
             inst_ID    <= inst_FE;
             is_nop_ID  <= 1'b0;
-
         end
     end
 
-
     //*** EXEC STAGE ***//
-
     wire is_br_EX_w;
     wire is_jmp_EX_w;
     wire [OP1BITS-1:0] op1_EX_w;
     wire [OP2BITS-1:0] op2_EX_w;
 
-    //reg [INSTBITS-1:0] inst_EX; /* This is for debugging */
     wire br_cond_EX;
     // Note that aluout_EX_r is declared as reg, but it is output signal from combi logic
     wire signed [DBITS-1:0] alu_in_EX_r;
@@ -647,7 +594,6 @@ module Project(
 
 
     //*** MEM STAGE ***//
-
     wire rd_mem_MEM_w;
     wire wr_mem_MEM_w;
 
@@ -660,7 +606,6 @@ module Project(
     wire reg_we_MEM_w;
     wire [1:0] reg_wr_src_sel_MEM_w;
 
-    //reg [INSTBITS-1:0] inst_MEM; /* This is for debugging */
     reg [DBITS-1:0] PC_MEM;
     reg [DBITS-1:0] mem_val_out_MEM;
     reg [DBITS-1:0] aluout_MEM;
@@ -721,7 +666,6 @@ module Project(
 
 
     /*** WRITE BACK STAGE ***/
-
     // Wires
     wire                   reg_we_WB_w; 
     wire [1:0]           reg_wr_src_sel_WB_w;
@@ -788,7 +732,7 @@ module Project(
             HEX_out <= regval2_EX[HEXBITS-1:0];
     end
 
-    // TODO: Write the code for LEDR here
+    //Write the code for LEDR here
 
     reg [9:0] LEDR_out;
 
