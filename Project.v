@@ -70,6 +70,14 @@ module Project(
     parameter HEXBITS  = 24;
     parameter LEDRBITS = 10;
     parameter KEYBITS  = 4;
+    
+    //*** COUNTERS ***//
+    // Used for counting statistics related to branching for analysis of
+    // effectiveness of our always-taken branch predictor
+    reg [HEXBITS-1:0] num_br_taken;
+    reg [HEXBITS-1:0] num_br_not_taken;
+    reg [HEXBITS-1:0] num_jals;
+    reg [HEXBITS-1:0] num_flushes;
  
     //*** PLL ***//
     // The reset signal comes from the reset button on the DE0-CV board
@@ -204,11 +212,17 @@ module Project(
             //if branch was not actually taken, we need to flush
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
+            
+            // COUNTERS
+            num_flushes <= num_flushes + 1;
         end
         else if (is_jmp_ID_w) begin
             //if the instruction is a JAL, we need to flush
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
+            
+            // COUNTERS
+            num_flushes <= num_flushes + 1;
         end
         else if (stall_pipe_reg_rd)
             inst_FE <= inst_FE;
@@ -572,6 +586,16 @@ module Project(
                        
     // EX_latch
     always @ (posedge clk or posedge reset) begin
+    
+        // COUNTERS
+        if ((op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == BNE)
+            && branch_not_taken_EX_w)
+            num_br_not_taken <= num_br_not_taken + 1;
+        else if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == BNE)
+            num_br_taken <= num_br_taken + 1;
+        else if (op1_EX_w == OP1_JAL)
+            num_jals <= num_jals + 1;
+            
         if(reset) begin
             PC_EX <= {DBITS{1'b0}}; //PC
             regval2_EX <= {DBITS{1'b0}}; //RtCont
