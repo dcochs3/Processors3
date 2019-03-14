@@ -70,6 +70,14 @@ module Project(
     parameter HEXBITS  = 24;
     parameter LEDRBITS = 10;
     parameter KEYBITS  = 4;
+    
+    //*** COUNTERS ***//
+    // Used for counting statistics related to branching for analysis of
+    // effectiveness of our always-taken branch predictor
+    reg [HEXBITS-1:0] num_br_taken;
+    reg [HEXBITS-1:0] num_br_not_taken;
+    reg [HEXBITS-1:0] num_jals;
+    reg [HEXBITS-1:0] num_flushes;
  
     //*** PLL ***//
     // The reset signal comes from the reset button on the DE0-CV board
@@ -182,6 +190,9 @@ module Project(
         else if (mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
+            
+            //COUNTER
+            num_flushes <= num_flushes + 1;
         end
         else if (stall_pipe_reg_rd)
             inst_FE <= inst_FE;
@@ -544,8 +555,8 @@ module Project(
                        PC_FE + INSTSIZE; //this case should not matter
                        
     // EX_latch
-    always @ (posedge clk or posedge reset) begin
-        if(reset) begin
+    always @ (posedge clk or posedge reset) begin    
+        if(reset) begin       
             PC_EX <= {DBITS{1'b0}}; //PC
             regval2_EX <= {DBITS{1'b0}}; //RtCont
             aluout_EX <= {DBITS{1'b0}}; //ALUResult
@@ -557,8 +568,16 @@ module Project(
             op1_EX     <= 6'b000000;
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
-            is_nop_EX <= 1'b0;
+            is_nop_EX <= 1'b0;            
         end else if (mispred_EX_w && op1_ID != OP1_JAL) begin
+            // COUNTERS
+            if ((op1_EX_w == OP1_BEQ) || (op1_EX_w == OP1_BLT) || (op1_EX_w == OP1_BLE) || (op1_EX_w == OP1_BNE) && (br_cond_EX == 1))
+                num_br_taken <= num_br_taken + 1;
+            else if ((op1_EX_w == OP1_BEQ) || (op1_EX_w == OP1_BLT) || (op1_EX_w == OP1_BLE) || (op1_EX_w == OP1_BNE) && (br_cond_EX == 0))
+                num_br_not_taken <= num_br_not_taken + 1;
+            else if (op1_EX_w == OP1_JAL)
+                num_jals <= num_jals + 1;
+        
             //do not latch
             //flush
             PC_EX <= {DBITS{1'b0}}; //PC
@@ -574,6 +593,14 @@ module Project(
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b1;
         end else begin
+            // COUNTERS
+            if ((op1_EX_w == OP1_BEQ) || (op1_EX_w == OP1_BLT) || (op1_EX_w == OP1_BLE) || (op1_EX_w == OP1_BNE) && (br_cond_EX == 1))
+                num_br_taken <= num_br_taken + 1;
+            else if ((op1_EX_w == OP1_BEQ) || (op1_EX_w == OP1_BLT) || (op1_EX_w == OP1_BLE) || (op1_EX_w == OP1_BNE) && (br_cond_EX == 0))
+                num_br_not_taken <= num_br_not_taken + 1;
+            else if (op1_EX_w == OP1_JAL)
+                num_jals <= num_jals + 1;
+                
             // Specify EX latches
             PC_EX <= PC_ID; //PC
             regval2_EX <= regval2_ID; //RtCont
@@ -730,8 +757,10 @@ module Project(
     always @ (posedge clk or posedge reset) begin
         if(reset)
             HEX_out <= 24'hFEDEAD;
-        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
-            HEX_out <= regval2_EX[HEXBITS-1:0];
+        //else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
+            //HEX_out <= regval2_EX[HEXBITS-1:0];
+        else
+            HEX_out <= num_br_not_taken;
     end
 
     // TODO: Write the code for LEDR here
