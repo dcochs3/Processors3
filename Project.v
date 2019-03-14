@@ -209,20 +209,20 @@ module Project(
             is_nop_FE <= 1'b0;
         end
         else if (branch_not_taken_EX_w) begin
+            // COUNTERS
+            num_flushes <= num_flushes + 1;
+            
             //if branch was not actually taken, we need to flush
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
-            
-            // COUNTERS
-            num_flushes <= num_flushes + 1;
         end
         else if (is_jmp_ID_w) begin
+            // COUNTERS
+            num_flushes <= num_flushes + 1;
+            
             //if the instruction is a JAL, we need to flush
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
-            
-            // COUNTERS
-            num_flushes <= num_flushes + 1;
         end
         else if (stall_pipe_reg_rd)
             inst_FE <= inst_FE;
@@ -553,7 +553,7 @@ module Project(
                         (op1_EX_w == OP1_BLT) ? (regval1_ID < regval2_ID)  :
                         (op1_EX_w == OP1_BLE) ? (regval1_ID <= regval2_ID) :
                         (op1_EX_w == OP1_BNE) ? (regval1_ID != regval2_ID) :
-                        1'b0;
+                        1'b1;
     
     assign aluout_EX_r = (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_EQ) ? {31'b0, regval1_ID == alu_in_EX_r} :
                          (op1_EX_w == OP1_ALUR && op2_EX_w == OP2_LT) ? {31'b0, regval1_ID < alu_in_EX_r} :
@@ -585,17 +585,7 @@ module Project(
     assign branch_not_taken_EX_w = (~br_cond_EX); //if the branch was not taken
                        
     // EX_latch
-    always @ (posedge clk or posedge reset) begin
-    
-        // COUNTERS
-        if ((op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == BNE)
-            && branch_not_taken_EX_w)
-            num_br_not_taken <= num_br_not_taken + 1;
-        else if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == BNE)
-            num_br_taken <= num_br_taken + 1;
-        else if (op1_EX_w == OP1_JAL)
-            num_jals <= num_jals + 1;
-            
+    always @ (posedge clk or posedge reset) begin            
         if(reset) begin
             PC_EX <= {DBITS{1'b0}}; //PC
             regval2_EX <= {DBITS{1'b0}}; //RtCont
@@ -610,6 +600,15 @@ module Project(
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
         end else if (branch_not_taken_EX_w) begin
+            // COUNTERS
+            if ((op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
+                && br_cond_EX)
+                num_br_taken <= num_br_taken + 1;
+            else if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
+                num_br_not_taken <= num_br_not_taken + 1;
+            else if (op1_EX_w == OP1_JAL)
+                num_jals <= num_jals + 1;
+                
             //do not latch
             //flush
             PC_EX <= {DBITS{1'b0}}; //PC
@@ -625,6 +624,15 @@ module Project(
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b1;
         end else begin
+            // COUNTERS
+            if ((op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
+                && br_cond_EX)
+                num_br_taken <= num_br_taken + 1;
+            else if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
+                num_br_not_taken <= num_br_not_taken + 1;
+            else if (op1_EX_w == OP1_JAL)
+                num_jals <= num_jals + 1;
+                
             // Specify EX latches
             PC_EX <= PC_ID; //PC
             regval2_EX <= regval2_ID; //RtCont
@@ -779,8 +787,10 @@ module Project(
     always @ (posedge clk or posedge reset) begin
         if(reset)
             HEX_out <= 24'hFEDEAD;
-        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
-            HEX_out <= regval2_EX[HEXBITS-1:0];
+//        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
+//            HEX_out <= regval2_EX[HEXBITS-1:0];
+        else
+            HEX_out <= num_br_taken;
     end
 
     // TODO: Write the code for LEDR here
