@@ -207,6 +207,9 @@ module Project(
         if(reset) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b0;
+            
+            num_jals    <= 0;
+            num_flushes <= 0;
         end
         else if (branch_not_taken_EX_w) begin
             // COUNTERS
@@ -218,6 +221,7 @@ module Project(
         end
         else if (is_jmp_ID_w) begin
             // COUNTERS
+            num_jals    <= num_jals + 1;
             num_flushes <= num_flushes + 1;
             
             //if the instruction is a JAL, we need to flush
@@ -230,6 +234,9 @@ module Project(
             inst_FE <= inst_FE;
         end
         else begin
+            // COUNTERS
+            num_flushes <= num_flushes + 1;
+            
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
         end
@@ -599,15 +606,12 @@ module Project(
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
+            
+            num_br_not_taken <= 0;
+            num_br_taken <= 0;
         end else if (branch_not_taken_EX_w) begin
             // COUNTERS
-            if ((op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
-                && br_cond_EX)
-                num_br_taken <= num_br_taken + 1;
-            else if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
-                num_br_not_taken <= num_br_not_taken + 1;
-            else if (op1_EX_w == OP1_JAL)
-                num_jals <= num_jals + 1;
+            num_br_not_taken <= num_br_not_taken + 24'h000001;
                 
             //do not latch
             //flush
@@ -625,13 +629,8 @@ module Project(
             is_nop_EX <= 1'b1;
         end else begin
             // COUNTERS
-            if ((op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
-                && br_cond_EX)
+            if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
                 num_br_taken <= num_br_taken + 1;
-            else if (op1_EX_w == OP1_BEQ || op1_EX_w == OP1_BLT || op1_EX_w == OP1_BLE || op1_EX_w == OP1_BNE)
-                num_br_not_taken <= num_br_not_taken + 1;
-            else if (op1_EX_w == OP1_JAL)
-                num_jals <= num_jals + 1;
                 
             // Specify EX latches
             PC_EX <= PC_ID; //PC
@@ -790,7 +789,7 @@ module Project(
 //        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
 //            HEX_out <= regval2_EX[HEXBITS-1:0];
         else
-            HEX_out <= num_br_taken;
+            HEX_out <= num_jals;
     end
 
     // TODO: Write the code for LEDR here
