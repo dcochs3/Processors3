@@ -26,7 +26,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
     //parameter IMEMINITFILE = "Test.mif";
-    parameter IMEMINITFILE = "fmedian2.mif";
+    parameter IMEMINITFILE = "ledr_hex_read_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -88,6 +88,10 @@ module Project(
     );
 
     assign reset = !locked;
+    
+    wire [DBITS-1:0] mem_addr_MEM_w;
+    wire             mem_we_MEM_w;
+    reg  [DBITS-1:0] regval2_EX;
   
     //*** IO DEVICES AND CONNECTIONS ***//
     
@@ -101,6 +105,7 @@ module Project(
   
     tri  [DBITS-1:0]    ledr_dbus;
     wire                ledr_we;
+    wire [LEDRBITS-1:0] ledr_out;
 
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow LEDR
@@ -111,14 +116,20 @@ module Project(
     // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
     // we want input
     assign ledr_we = mem_we_MEM_w;
+    
+    // Note that the hex_out wire is used as an intermediate value so that
+    // we have a way to get the current output of the device when we want
+    // to read
+    assign LEDR = ledr_out;
   
-    LEDR_DEV my_ledr (.ABUS(io_abus), .DBUS(ledr_dbus), .WE(ledr_we), .CLK(clk), .RESET(reset), .LEDR_OUT(LEDR));
+    LEDR_DEV my_ledr (.ABUS(io_abus), .DBUS(ledr_dbus), .WE(ledr_we), .CLK(clk), .RESET(reset), .LEDR_OUT(ledr_out));
   
     //** HEX **//
     
     tri  [DBITS-1:0]   hex_dbus;
     wire               hex_we;
     wire [HEXBITS-1:0] HEX;
+    wire [HEXBITS-1:0] hex_out;
  
     // Connect hex_out to the 6 hex displays
     SevenSeg ss5(.OUT(HEX5), .IN(HEX[23:20]), .OFF(1'b0));
@@ -137,8 +148,13 @@ module Project(
     // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
     // we want input
     assign hex_we = mem_we_MEM_w;
+    
+    // Note that the hex_out wire is used as an intermediate value so that
+    // we have a way to get the current output of the device when we want
+    // to read
+    assign HEX = hex_out;
   
-    HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(HEX));
+    HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(hex_out));
 
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -165,7 +181,6 @@ module Project(
     wire forward_lw_to_rs_from_MEM;
     wire forward_lw_to_rt_from_MEM;
     wire [DBITS-1:0] mem_val_out_MEM_w;
-    reg [DBITS-1:0] regval2_EX;
     
     wire [REGNOBITS-1:0] dst_reg_ID_w;
     reg [REGNOBITS-1:0] dst_reg_EX;
@@ -190,8 +205,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
     initial begin
-        $readmemh("fmedian2.hex", imem);
-        $readmemh("fmedian2.hex", dmem);
+        $readmemh("ledr_hex_read_test.hex", imem);
+        $readmemh("ledr_hex_read_test.hex", dmem);
     end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -648,8 +663,6 @@ module Project(
     wire wr_mem_MEM_w;
 
     wire [DBITS-1:0] PC_MEM_w;
-    wire [DBITS-1:0] mem_addr_MEM_w;
-    wire mem_we_MEM_w;
     wire mem_re_MEM_w;
     wire [DBITS-1:0] aluout_MEM_w;
     wire [REGNOBITS-1:0] dst_reg_MEM_w;
@@ -681,8 +694,10 @@ module Project(
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign mem_val_out_MEM_w =  (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
-                                    dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
+    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} :
+                               (mem_addr_MEM_w == ADDRHEX) ? {{(DBITS-HEXBITS){1'b0}}, hex_out} :
+                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+                               dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
     always @ (posedge clk) begin
@@ -780,13 +795,13 @@ module LEDR_DEV(ABUS, DBUS, WE, CLK, RESET, LEDR_OUT);
     
     wire             write_ctrl = WE == 1'b1 && ABUS == ADDRLEDR;
     wire             read_ctrl  = WE == 1'b0 && ABUS == ADDRLEDR;
-    reg  [DBITS-1:0] ledr_out;
+    reg  [LEDRBITS-1:0] ledr_out;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET)
             ledr_out <= {LEDRBITS{1'b0}};
         else if (write_ctrl)
-            ledr_out <= DBUS;
+            ledr_out <= DBUS[LEDRBITS-1:0];
     end
     
     // If we want to read, then put the LEDR out value on the data bus;
@@ -809,15 +824,15 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
     input                  RESET;
     output [HEXBITS-1:0]   HEX_OUT;
     
-    wire             write_ctrl = WE == 1'b1 && ABUS == ADDRHEX;
-    wire             read_ctrl  = WE == 1'b0 && ABUS == ADDRHEX;
-    reg  [DBITS-1:0] hex_out;
+    wire               write_ctrl = WE == 1'b1 && ABUS == ADDRHEX;
+    wire               read_ctrl  = WE == 1'b0 && ABUS == ADDRHEX;
+    reg  [HEXBITS-1:0] hex_out;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET)
-            hex_out <= {HEXBITS{1'b0}};         
+            hex_out <= 24'hFEDEAD;         
         else if (write_ctrl)
-            hex_out <= DBUS;
+            hex_out <= DBUS[HEXBITS-1:0];
     end
     
     // If we want to read, then put the LEDR out value on the data bus;
