@@ -87,8 +87,58 @@ module Project(
         .locked    (locked)
     );
 
-  assign reset = !locked;
+    assign reset = !locked;
+  
+    //*** IO DEVICES AND CONNECTIONS ***//
+    
+    wire [DBITS-1:0] io_abus;
+    
+    // We need to know if the address in MEM stage is the address of
+    // a memory-mapped IO device
+    assign io_abus = mem_addr_MEM_w;
+  
+    //** LEDR **//
+  
+    tri  [DBITS-1:0]    ledr_dbus;
+    wire                ledr_we;
 
+    // If memory is write-enabled, use regval2_EX, the memory input value;
+    // if memory is not write-enabled, use high-impedance to allow LEDR
+    // to drive it's input value to the data bus
+    assign ledr_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
+
+    // Whether we are using the LEDR for input or output is determined
+    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
+    // we want input
+    assign ledr_we = mem_we_MEM_w;
+  
+    LEDR_DEV my_ledr (.ABUS(io_abus), .DBUS(ledr_dbus), .WE(ledr_we), .CLK(clk), .RESET(reset), .LEDR_OUT(LEDR));
+  
+    //** HEX **//
+    
+    tri  [DBITS-1:0]   hex_dbus;
+    wire               hex_we;
+    wire [HEXBITS-1:0] HEX;
+ 
+    // Connect hex_out to the 6 hex displays
+    SevenSeg ss5(.OUT(HEX5), .IN(HEX[23:20]), .OFF(1'b0));
+    SevenSeg ss4(.OUT(HEX4), .IN(HEX[19:16]), .OFF(1'b0));
+    SevenSeg ss3(.OUT(HEX3), .IN(HEX[15:12]), .OFF(1'b0));
+    SevenSeg ss2(.OUT(HEX2), .IN(HEX[11:8]), .OFF(1'b0));
+    SevenSeg ss1(.OUT(HEX1), .IN(HEX[7:4]), .OFF(1'b0));
+    SevenSeg ss0(.OUT(HEX0), .IN(HEX[3:0]), .OFF(1'b0));
+
+    // If memory is write-enabled, use regval2_EX, the memory input value;
+    // if memory is not write-enabled, use high-impedance to allow HEX
+    // to drive it's input value to the data bus
+    assign hex_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
+
+    // Whether we are using the HEX for input or output is determined
+    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
+    // we want input
+    assign hex_we = mem_we_MEM_w;
+  
+    HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(HEX));
 
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -631,7 +681,7 @@ module Project(
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+    assign mem_val_out_MEM_w =  (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
                                     dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
@@ -646,7 +696,7 @@ module Project(
             mem_val_out_MEM    <= {DBITS{1'b0}};
             aluout_MEM         <= {DBITS{1'b0}};
             dst_reg_MEM        <= {REGNOBITS{1'b0}};
-            reg_we_MEM         <= {2{1'b0}};
+            reg_we_MEM         <= 1'b0;
             reg_wr_src_sel_MEM <= {2{1'b0}};
             ctrlsig_MEM        <= 1'b0;
             inst_MEM           <= {INSTBITS{1'b0}};
@@ -713,38 +763,68 @@ module Project(
             endcase
         end
     end
+endmodule
 
-    /*** I/O ***/
-    // Create and connect HEX register
-    reg [23:0] HEX_out;
- 
-    SevenSeg ss5(.OUT(HEX5), .IN(HEX_out[23:20]), .OFF(1'b0));
-    SevenSeg ss4(.OUT(HEX4), .IN(HEX_out[19:16]), .OFF(1'b0));
-    SevenSeg ss3(.OUT(HEX3), .IN(HEX_out[15:12]), .OFF(1'b0));
-    SevenSeg ss2(.OUT(HEX2), .IN(HEX_out[11:8]), .OFF(1'b0));
-    SevenSeg ss1(.OUT(HEX1), .IN(HEX_out[7:4]), .OFF(1'b0));
-    SevenSeg ss0(.OUT(HEX0), .IN(HEX_out[3:0]), .OFF(1'b0));
 
-    always @ (posedge clk or posedge reset) begin
-        if(reset)
-            HEX_out <= 24'hFEDEAD;
-        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX))
-            HEX_out <= regval2_EX[HEXBITS-1:0];
+module LEDR_DEV(ABUS, DBUS, WE, CLK, RESET, LEDR_OUT);
+    parameter DBITS    = 32;
+    parameter LEDRBITS = 10;
+    parameter ADDRLEDR = 32'hFFFFF020;
+
+    input  [DBITS-1:0]     ABUS;
+    inout  [DBITS-1:0]     DBUS;
+    input                  WE;
+    input                  CLK;
+    input                  RESET;
+    output [LEDRBITS-1:0]  LEDR_OUT;
+    
+    wire             write_ctrl = WE == 1'b1 && ABUS == ADDRLEDR;
+    wire             read_ctrl  = WE == 1'b0 && ABUS == ADDRLEDR;
+    reg  [DBITS-1:0] ledr_out;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET)
+            ledr_out <= {LEDRBITS{1'b0}};
+        else if (write_ctrl)
+            ledr_out <= DBUS;
     end
+    
+    // If we want to read, then put the LEDR out value on the data bus;
+    // else use high-impedance to allow the processor to drive to data bus
+    assign DBUS = read_ctrl ? ledr_out : {DBITS{1'bz}};
+    
+    assign LEDR_OUT = ledr_out;
+endmodule
 
-    //Write the code for LEDR here
 
-    reg [9:0] LEDR_out;
+module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
+    parameter DBITS    = 32;
+    parameter HEXBITS  = 24;
+    parameter ADDRHEX  = 32'hFFFFF000;
 
-    always @ (posedge clk or posedge reset) begin
-        if(reset)
-            LEDR_out <= 10'b0000000000;
-        else if(mem_we_MEM_w && (mem_addr_MEM_w == ADDRLEDR))
-            LEDR_out <= regval2_EX[LEDRBITS-1:0];
+    input  [DBITS-1:0]     ABUS;
+    inout  [DBITS-1:0]     DBUS;
+    input                  WE;
+    input                  CLK;
+    input                  RESET;
+    output [HEXBITS-1:0]   HEX_OUT;
+    
+    wire             write_ctrl = WE == 1'b1 && ABUS == ADDRHEX;
+    wire             read_ctrl  = WE == 1'b0 && ABUS == ADDRHEX;
+    reg  [DBITS-1:0] hex_out;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET)
+            hex_out <= {HEXBITS{1'b0}};         
+        else if (write_ctrl)
+            hex_out <= DBUS;
     end
-
-    assign LEDR = LEDR_out;
-
+    
+    // If we want to read, then put the LEDR out value on the data bus;
+    // else use high-impedance to allow the processor to drive to data bus
+    assign DBUS = read_ctrl ? hex_out : {DBITS{1'bz}};
+    
+    assign HEX_OUT = hex_out;
 endmodule
 
 
