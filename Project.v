@@ -48,6 +48,8 @@ module Project(
     parameter OP1_ANDI = 6'b100100;
     parameter OP1_ORI  = 6'b100101;
     parameter OP1_XORI = 6'b100110;
+    
+    parameter OP1_SYS  = 6'b111111;
 
     // Add parameters for secondary opcode values 
     /* OP2 */
@@ -66,6 +68,10 @@ module Project(
     parameter OP2_NXOR = 8'b00101110;
     parameter OP2_RSHF = 8'b00110000;
     parameter OP2_LSHF = 8'b00110001;
+    
+    parameter OP2_RETI = 8'b00000001;
+    parameter OP2_RSR  = 8'b00000010;
+    parameter OP2_WSR  = 8'b00000011;
 
     parameter HEXBITS  = 24;
     parameter LEDRBITS = 10;
@@ -155,6 +161,15 @@ module Project(
     assign HEX = hex_out;
   
     HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(hex_out));
+    
+    //I don't know where to put this, so I just put it here for now
+    //We will have a processor interrupt request signal
+    wire key_IRQ;
+    wire sw_IRQ;
+    wire t_IRQ;
+    wire proc_IRQ;
+    //This is set by ORing the individual devices' interrupt request signals
+    assign proc_IRQ = (key_IRQ || sw_IRQ || t_IRQ);
 
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -187,6 +202,7 @@ module Project(
     reg [REGNOBITS-1:0] dst_reg_MEM;
     wire signed [DBITS-1:0] aluout_EX_r;
     reg [5:0] op1_EX;
+    reg [7:0] op2_EX;
     reg [DBITS-1:0] aluout_EX;
     reg [REGNOBITS-1:0] dst_reg_ID;
     reg [DBITS-1:0] PC_REG;
@@ -197,6 +213,12 @@ module Project(
     reg is_nop_EX;
     reg is_nop_MEM;
     reg mispred_EX;
+    
+    //For interrupt handling
+    reg [DBITS-1:0] IRA; //interrupt return address
+    reg [DBITS-1:0] IHA; //interrupt handler address
+    reg [2:0] IDN;       //interrupt device number -- this is 3 bits wide because there are 3 devices (key, switch, timer) that generate interrupts
+    reg [1:0] PCS;       //processor control status -- bit 0 is IE, bit 1 is OIE
 
     // I-MEM
     (* ram_init_file = IMEMINITFILE *)
@@ -215,6 +237,28 @@ module Project(
         if(reset) begin
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
+        end
+        else if (proc_IRQ && PCS[0] == 1) begin
+            //Things we need TODO if we detect an interrupt:
+
+            //Save the next instruction address in IRA
+            //IRA <= 
+            
+            //Determine which device raised the interrupt and save that device's ID in IDN
+            
+            
+            //Disable interrupts:
+                //Copy the IE bit to the OIE bit in the PCS register
+                //Then set IE to 0
+            PCS[1] <= PCS[0];   //OIE <= IE
+            PCS[0] <= 1'b0;     //IE <= 0
+            
+            //Jump to the interrupt handler (set the PC value to be the address in IHA)
+            
+            PC_REG <= IHA;
+            PC_FE <= IHA;
+            
+            //TODO: we have to flush something...
         end
         else if(mispred_EX_w) begin
             //use branch or jal target address
@@ -240,6 +284,10 @@ module Project(
         if(reset) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b0;
+        end
+        else if (proc_IRQ) begin
+            //TODO: what is this behavior?
+            inst_FE <= IHA;
         end
         else if (mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
@@ -297,11 +345,13 @@ module Project(
     // Specify signals such as op*_ID_w, imm_ID_w, r*_ID_w
     assign op1_ID_w = inst_FE[31:26];
     assign op2_ID_w = inst_FE[25:18];
-    assign rd_ID_w = inst_FE[11:8];
+    assign rd_ID_w = inst_FE[11:8];     //if OP2_WSR, rd maps to a system register
     assign rt_ID_w = inst_FE[3:0];
-    assign rs_ID_w = inst_FE[7:4];
+    assign rs_ID_w = inst_FE[7:4];      //if OP2_RSR, rs maps to a system register
     assign imm_ID_w = inst_FE[23:8];
 
+    
+    
     // Read register values
     //FORWARDING    
     assign regval1_ID_w = (forward_lw_to_rs_from_MEM) ? mem_val_out_MEM_w :
@@ -404,6 +454,32 @@ module Project(
     
     // 1 if the instruction currently in ID stage uses the Rs of the instruction in EX as an operand
     assign data_dep_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX));
+
+    
+    //This says:
+    //if the instruction in ID is RSR or WSR AND the instruction in EX or MEM is not RSR or WSR or RETI
+    //OR the instruction in ID is not RSR or WSR or RETI AND an instruction in EX or MEM is RSR or WSR
+    //TODO: Should RETI be included in these comparisons?
+    assign ignore_dep = ((((op1_ID_w == OP1_SYS) && (op2_ID_w != OP2_RETI)) && ((op1_ID != OP1_SYS) && (op1_EX != OP1_SYS)))
+                        || ((op1_ID_w != OP1_SYS) && (((op1_ID == OP1_SYS) && (op2_ID != OP2_RETI)) ^ ((op1_EX == OP1_SYS) && (op2_EX != OP2_RETI)))));
+
+//    assign sys_dep = 
+//    
+//    (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX)) && 
+//    
+//    (
+//    ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
+//    &&
+//    (op1_ID == OP1_SYS
+//    
+//    and inst in EX or MEM is RSR
+//    
+//    OR
+//    inst in ID is RSR and inst in EX or MEM is WSR
+//    )
+    
+
+    
     
     //if there is a data dependency
     //determine where we need to forward from
@@ -595,7 +671,7 @@ module Project(
                          (op1_EX_w == OP1_LW || op1_EX_w == OP1_SW || op1_EX_w == OP1_ADDI) ? (regval1_ID + alu_in_EX_r) :
                          (op1_EX_w == OP1_ANDI) ? (regval1_ID & alu_in_EX_r) :
                          (op1_EX_w == OP1_ORI) ? (regval1_ID | alu_in_EX_r) :
-                         (op1_EX_w == OP1_XORI) ? (regval1_ID ^ alu_in_EX_r) :
+                         (op1_EX_w == OP1_XORI) ? (regval1_ID ^ alu_in_EX_r) :                         
                          {DBITS{1'b0}};
 
     assign is_br_EX_w = ctrlsig_ID[4];
@@ -605,10 +681,13 @@ module Project(
     assign ctrlsig_EX_w = {rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
     // Specify signals such as mispred_EX_w, pcgood_EX_w
-    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL);
-    assign pcgood_EX_w = (op1_ID == OP1_JAL)?(regval1_ID + (sxt_imm_ID << 2)):
-                       (br_cond_EX)?(PC_ID + (sxt_imm_ID << 2)):
+    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL) || ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI));
+    assign pcgood_EX_w = (op1_ID == OP1_JAL) ? (regval1_ID + (sxt_imm_ID << 2)) :
+                       (br_cond_EX) ? (PC_ID + (sxt_imm_ID << 2)):
+                       ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
                        PC_FE + INSTSIZE; //this case should not matter
+                       
+    //PCS[0] <= ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? PCS[1] : PCS[0];
                        
     // EX_latch
     always @ (posedge clk or posedge reset) begin
@@ -622,6 +701,7 @@ module Project(
             reg_we_EX <= 1'b0; //RegWE
             reg_wr_src_sel_EX <= 2'b00; //RegWrSrcSel
             op1_EX     <= 6'b000000;
+            op2_EX     <= 8'b00000000;
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
@@ -637,6 +717,7 @@ module Project(
             reg_we_EX <= 1'b0; //RegWE
             reg_wr_src_sel_EX <= 2'b00; //RegWrSrcSel
             op1_EX     <= 6'b000000;
+            op2_EX     <= 8'b00000000;
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b1;
@@ -651,6 +732,7 @@ module Project(
             reg_we_EX <= reg_we_ID; //RegWE
             reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
             op1_EX     <= op1_ID;
+            op2_EX     <= op2_ID;
             ctrlsig_EX <= ctrlsig_EX_w;
             inst_EX <= inst_ID;
             is_nop_EX <= is_nop_ID;
