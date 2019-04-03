@@ -12,22 +12,23 @@ module Project(
     output [9:0] LEDR
 );
 
-    parameter DBITS     = 32;
-    parameter INSTSIZE  = 32'd4;
-    parameter INSTBITS  = 32;
-    parameter REGNOBITS = 4;
-    parameter REGWORDS  = (1 << REGNOBITS);
-    parameter IMMBITS   = 16;
-    parameter STARTPC   = 32'h100;
-    parameter ADDRHEX   = 32'hFFFFF000;
-    parameter ADDRLEDR  = 32'hFFFFF020;
-    parameter ADDRKEY   = 32'hFFFFF080;
+    parameter DBITS      = 32;
+    parameter INSTSIZE   = 32'd4;
+    parameter INSTBITS   = 32;
+    parameter REGNOBITS  = 4;
+    parameter REGWORDS   = (1 << REGNOBITS);
+    parameter IMMBITS    = 16;
+    parameter STARTPC    = 32'h100;
+    parameter ADDRHEX    = 32'hFFFFF000;
+    parameter ADDRLEDR   = 32'hFFFFF020;
+    parameter ADDRKEY    = 32'hFFFFF080;
     parameter ADDRKCTRL  = 32'hFFFFF084;
-    parameter ADDRSW    = 32'hFFFFF090;
+    parameter ADDRSW     = 32'hFFFFF090;
+    parameter ADDRSWCTRL = 32'hFFFFF094;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "Test.mif";
-//    parameter IMEMINITFILE = "ledr_hex_read_test.mif";
+//    parameter IMEMINITFILE = "Test.mif";
+    parameter IMEMINITFILE = "switch_read_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -250,8 +251,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
 //    initial begin
-//        $readmemh("ledr_hex_read_test.hex", imem);
-//        $readmemh("ledr_hex_read_test.hex", dmem);
+//        $readmemh("switch_read_test.hex", imem);
+//        $readmemh("switch_read_test.hex", dmem);
 //    end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -743,6 +744,8 @@ module Project(
                                (mem_addr_MEM_w == ADDRHEX) ? {{(DBITS-HEXBITS){1'b0}}, hex_out} :
                                (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~key_dbus} :
                                (mem_addr_MEM_w == ADDRKCTRL) ? {{(DBITS-KCTRLBITS){1'b0}}, kctrl_reg} :
+                               (mem_addr_MEM_w == ADDRSW) ? {{(DBITS-SWBITS){1'b0}}, sw_dbus} :
+                               (mem_addr_MEM_w == ADDRSWCTRL) ? {{(DBITS-SWCTRLBITS){1'b0}}, swctrl_reg} :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
