@@ -25,8 +25,8 @@ module Project(
     parameter ADDRSW    = 32'hFFFFF090;
 
     // Change this to fmedian2.mif before submitting
-    //parameter IMEMINITFILE = "Test.mif";
-    parameter IMEMINITFILE = "ledr_hex_read_test.mif";
+    parameter IMEMINITFILE = "Test.mif";
+//    parameter IMEMINITFILE = "ledr_hex_read_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -67,9 +67,10 @@ module Project(
     parameter OP2_RSHF = 8'b00110000;
     parameter OP2_LSHF = 8'b00110001;
 
-    parameter HEXBITS  = 24;
-    parameter LEDRBITS = 10;
-    parameter KEYBITS  = 4;
+    parameter HEXBITS   = 24;
+    parameter LEDRBITS  = 10;
+    parameter KEYBITS   = 4;
+    parameter KCTRLBITS = 3;
  
     //*** PLL ***//
     // The reset signal comes from the reset button on the DE0-CV board
@@ -156,6 +157,15 @@ module Project(
   
     HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(hex_out));
 
+    //** KEY **//
+    
+//    KEY_DEV(ABUS, DBUS, CLK, RESET, KEY_IN, KCTRL_OUT)   (Here for reference)
+
+    wire [KEYBITS-1:0]   key_dbus;       // The current value of KDATA (=KEY)
+    wire [KCTRLBITS-1:0] kctrl_reg_out;  // The current value of KCTRL
+
+    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg));
+    
     //*** FETCH STAGE ***//
     // The PC register and update logic
     wire [DBITS-1:0] pcplus_FE;
@@ -204,10 +214,10 @@ module Project(
 
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
-    initial begin
-        $readmemh("ledr_hex_read_test.hex", imem);
-        $readmemh("ledr_hex_read_test.hex", dmem);
-    end
+//    initial begin
+//        $readmemh("ledr_hex_read_test.hex", imem);
+//        $readmemh("ledr_hex_read_test.hex", dmem);
+//    end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
 
@@ -696,7 +706,7 @@ module Project(
     // Read from D-MEM
     assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} :
                                (mem_addr_MEM_w == ADDRHEX) ? {{(DBITS-HEXBITS){1'b0}}, hex_out} :
-                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~key_dbus} :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
@@ -840,6 +850,54 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
     assign DBUS = read_ctrl ? hex_out : {DBITS{1'bz}};
     
     assign HEX_OUT = hex_out;
+endmodule
+
+
+module KEY_DEV(ABUS, DBUS, CLK, RESET, KEY_IN, KCTRL_OUT);
+    parameter DBITS      = 32;
+    parameter KEYBITS    = 4;
+    parameter ADDRKDATA  = 32'hFFFFF080;
+    parameter KCTRLBITS  = 3;
+    parameter ADDRKCTRL  = 32'hFFFFF084;
+    
+    // These are for indexing into KCTRL
+    parameter READYBIT   = 0;  
+    parameter OVERRUNBIT = 1;
+    parameter IEBIT      = 2;         // Should it be 4??? Who knows???
+    
+    input  [DBITS-1:0]     ABUS;
+    output [DBITS-1:0]     DBUS;
+    input                  CLK;
+    input                  RESET;
+    input  [KEYBITS-1:0]   KEY_IN;    // The input of the Project module named
+                                      // KEY; included as an input to KEY_DEV to
+                                      // allow us to implement KEY as a proper
+                                      // IO device; whenever the processor needs
+                                      // to read the value of the KEY, it should
+                                      // check the value from KEY_DEV's DBUS
+    output [KCTRLBITS-1:0] KCTRL_OUT;
+    
+    reg  [KEYBITS-1:0]   KDATA_old;   // Holds most recent value of KDATA   
+                                      // to allow for detection of changes
+    reg  [KEYBITS-1:0]   KDATA;
+    reg  [KCTRLBITS-1:0] KCTRL;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET) begin
+            KDATA_old <= {KEYBITS{1'b0}};
+            KDATA     <= {KEYBITS{1'b0}};
+            KCTRL     <= {KCTRLBITS{1'b0}};
+        end else begin
+            KDATA_old         <= KDATA;
+            KDATA             <= KEY_IN;
+            KCTRL[READYBIT]   <= (KDATA != KDATA_old);
+            KCTRL[OVERRUNBIT] <= (KDATA != KDATA_old) & KCTRL[READYBIT];
+            KCTRL[IEBIT]      <= 1'b0;            // Temporary
+        end
+    end
+    
+    assign DBUS      = KDATA;
+    assign KCTRL_OUT = KCTRL;
 endmodule
 
 
