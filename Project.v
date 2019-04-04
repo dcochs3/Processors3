@@ -26,7 +26,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
     parameter IMEMINITFILE = "fmedian2.mif";
-    //parameter IMEMINITFILE = "ledr_hex_read_test.mif";
+    //parameter IMEMINITFILE = "new_instr_compat_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -76,6 +76,14 @@ module Project(
     parameter HEXBITS  = 24;
     parameter LEDRBITS = 10;
     parameter KEYBITS  = 4;
+    
+    
+    //Device number priority encoding
+    wire [3:0] device_num =
+        timer ? 4'b0001 :
+        (kctrl_reg[IEBIT] && kctrl_reg[READYBIT]) ? 4'b0010 :
+        (swctrl_reg[IEBIT] && swctrl_reg[READYBIT]) ? 4'b0011 :
+        4'b1111;
  
     //*** PLL ***//
     // The reset signal comes from the reset button on the DE0-CV board
@@ -242,10 +250,14 @@ module Project(
             //Things we need TODO if we detect an interrupt:
 
             //Save the next instruction address in IRA
-            //IRA <= 
+            IRA <= pcplus_FE;
             
             //Determine which device raised the interrupt and save that device's ID in IDN
+            IDN <= device_num;
             
+            //SWCTRL[READYBIT]
+            //SWCTRL[OVERRUNBIT]
+            //SWCTRL[IEBIT] 
             
             //Disable interrupts:
                 //Copy the IE bit to the OIE bit in the PCS register
@@ -254,11 +266,10 @@ module Project(
             PCS[0] <= 1'b0;     //IE <= 0
             
             //Jump to the interrupt handler (set the PC value to be the address in IHA)
-            
             PC_REG <= IHA;
             PC_FE <= IHA;
             
-            //TODO: we have to flush something...
+            //TODO: we have to flush something...?
         end
         else if(mispred_EX_w) begin
             //use branch or jal target address
@@ -425,6 +436,8 @@ module Project(
     
     assign reg_we_ID_w         = (inst_FE != {DBITS{1'b0}}) &&
                                  ((op1_ID_w == OP1_ALUR)
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR))
                                  || (op1_ID_w == OP1_JAL)
                                  || (op1_ID_w == OP1_LW)
                                  || (op1_ID_w == OP1_ADDI)
@@ -433,13 +446,17 @@ module Project(
                                  || (op1_ID_w == OP1_XORI));
                                  
     assign reg_wr_src_sel_ID_w = {((op1_ID_w == OP1_ALUR)
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR))
                                  || (op1_ID_w == OP1_ADDI)
                                  || (op1_ID_w == OP1_ANDI)
                                  || (op1_ID_w == OP1_ORI)
                                  || (op1_ID_w == OP1_XORI)),
                                  (op1_ID_w == OP1_LW)};
     
-    assign reg_wr_dst_sel_ID_w = (inst_FE != {DBITS{1'b0}}) && (op1_ID_w == OP1_ALUR);
+    assign reg_wr_dst_sel_ID_w = (inst_FE != {DBITS{1'b0}}) && ((op1_ID_w == OP1_ALUR)
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR)));
 
             
     assign rd_mem_ID_w = mem_re_ID_w;
