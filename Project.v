@@ -86,13 +86,6 @@ module Project(
     parameter READYBIT   = 0;
     parameter OVERRUNBIT = 1;
     parameter IEBIT      = 2;
-    
-    //Device number priority encoding
-    wire [3:0] device_num =
-        timer ? 4'b0001 :
-        (kctrl_reg[IEBIT] && kctrl_reg[READYBIT]) ? 4'b0010 :
-        (swctrl_reg[IEBIT] && swctrl_reg[READYBIT]) ? 4'b0011 :
-        4'b1111;
  
     //*** PLL ***//
     // The reset signal comes from the reset button on the DE0-CV board
@@ -185,8 +178,21 @@ module Project(
     wire sw_IRQ;
     wire t_IRQ;
     wire proc_IRQ;
+    
+    assign key_IRQ = kctrl_reg[IEBIT] && kctrl_reg[READYBIT];
+    assign sw_IRQ = swctrl_reg[IEBIT] && swctrl_reg[READYBIT];
+    //assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
+    
     //This is set by ORing the individual devices' interrupt request signals
-    assign proc_IRQ = (key_IRQ || sw_IRQ || t_IRQ);
+    //And it is only set if interrupts are enabled (PCS[0] == 1)
+    assign proc_IRQ = PCS[0] && (key_IRQ || sw_IRQ || t_IRQ);
+    
+    //Device number priority encoding
+    wire [3:0] device_num =
+        //t_IRQ ? 4'b0001 :
+        key_IRQ ? 4'b0010 :
+        sw_IRQ ? 4'b0011 :
+        4'b1111;
 
     //** KEY **//
 
@@ -268,10 +274,15 @@ module Project(
     reg mispred_EX;
     
     //For interrupt handling
-    reg [DBITS-1:0] IRA; //interrupt return address
-    reg [DBITS-1:0] IHA; //interrupt handler address
-    reg [2:0] IDN;       //interrupt device number -- this is 3 bits wide because there are 3 devices (key, switch, timer) that generate interrupts
     reg [1:0] PCS;       //processor control status -- bit 0 is IE, bit 1 is OIE
+    reg [DBITS-1:0] IHA; //interrupt handler address
+    reg [DBITS-1:0] IRA; //interrupt return address
+    reg [2:0] IDN;       //interrupt device number -- this is 3 bits wide because there are 3 devices (key, switch, timer) that generate interrupts
+    
+    parameter PCS_reg_ID = 4'b0000;
+    parameter IHA_reg_ID = 4'b0001;
+    parameter IRA_reg_ID = 4'b0010;
+    parameter IDN_reg_ID = 4'b0011;
 
     // I-MEM
     (* ram_init_file = IMEMINITFILE *)
@@ -291,24 +302,20 @@ module Project(
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
         end
-        else if (proc_IRQ && PCS[0] == 1) begin
+        else if (proc_IRQ) begin
             //Things we need TODO if we detect an interrupt:
 
             //Save the next instruction address in IRA
-            IRA <= pcplus_FE;
+            //IRA <= pcplus_FE;
             
             //Determine which device raised the interrupt and save that device's ID in IDN
-            IDN <= device_num;
-            
-            //SWCTRL[READYBIT]
-            //SWCTRL[OVERRUNBIT]
-            //SWCTRL[IEBIT] 
+            //IDN <= device_num;
             
             //Disable interrupts:
                 //Copy the IE bit to the OIE bit in the PCS register
                 //Then set IE to 0
-            PCS[1] <= PCS[0];   //OIE <= IE
-            PCS[0] <= 1'b0;     //IE <= 0
+            //PCS[1] <= PCS[0];   //OIE <= IE
+            //PCS[0] <= 1'b0;     //IE <= 0
             
             //Jump to the interrupt handler (set the PC value to be the address in IHA)
             PC_REG <= IHA;
@@ -343,7 +350,10 @@ module Project(
         end
         else if (proc_IRQ) begin
             //TODO: what is this behavior?
-            inst_FE <= IHA;
+            //This should be the first instruction of the interrupt handler
+            //Do we need to handle this case separately?
+            inst_FE <= inst_FE_w;
+            is_nop_FE <= 1'b0;
         end
         else if (mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
@@ -405,14 +415,18 @@ module Project(
     assign rt_ID_w = inst_FE[3:0];
     assign rs_ID_w = inst_FE[7:4];      //if OP2_RSR, rs maps to a system register
     assign imm_ID_w = inst_FE[23:8];
-
-    
     
     // Read register values
     //FORWARDING    
     assign regval1_ID_w = (forward_lw_to_rs_from_MEM) ? mem_val_out_MEM_w :
+                          (forward_rs_from_EX_sys) ? aluout_EX_r :
+                          (forward_rs_from_MEM_sys) ? aluout_EX :
                           (forward_rs_from_EX) ? aluout_EX_r :
                           (forward_rs_from_MEM) ? aluout_EX : 
+                          (rdsysreg_ID_w && (rs_ID_w == PCS_reg_ID)) ? PCS :                 
+                          (rdsysreg_ID_w && (rs_ID_w == IHA_reg_ID)) ? IHA :
+                          (rdsysreg_ID_w && (rs_ID_w == IRA_reg_ID)) ? IRA :
+                          (rdsysreg_ID_w && (rs_ID_w == IDN_reg_ID)) ? IDN :
                           regs[rs_ID_w];
                           
     assign regval2_ID_w = (forward_mem_cont_from_EX) ? regval2_ID :
@@ -514,42 +528,37 @@ module Project(
     //if the instruction currently in ID stage reads from the destination register of the instruction currently in execute
     //we need to forward (use "aluout_EX_r" as your read register value)
     
-    // 1 if the instruction currently in ID stage uses the Rs of the instruction in EX as an operand
-    assign data_dep_rs = (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX));
-
+    wire rdsysreg_ID_w;
+    wire wrsysreg_EX_w;
+    wire wrsysreg_MEM_w;
     
-    //This says:
-    //if the instruction in ID is RSR or WSR AND the instruction in EX or MEM is not RSR or WSR or RETI
-    //OR the instruction in ID is not RSR or WSR or RETI AND an instruction in EX or MEM is RSR or WSR
-    //TODO: Should RETI be included in these comparisons?
-    assign ignore_dep = ((((op1_ID_w == OP1_SYS) && (op2_ID_w != OP2_RETI)) && ((op1_ID != OP1_SYS) && (op1_EX != OP1_SYS)))
-                        || ((op1_ID_w != OP1_SYS) && (((op1_ID == OP1_SYS) && (op2_ID != OP2_RETI)) ^ ((op1_EX == OP1_SYS) && (op2_EX != OP2_RETI)))));
-
-//    assign sys_dep = 
-//    
-//    (rs_ID_w != 4'b0000) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX)) && 
-//    
-//    (
-//    ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
-//    &&
-//    (op1_ID == OP1_SYS
-//    
-//    and inst in EX or MEM is RSR
-//    
-//    OR
-//    inst in ID is RSR and inst in EX or MEM is WSR
-//    )
+    //1 if the instruction in the ID stage is RSR, we are reading from a system register
+    assign rdsysreg_ID_w = (op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR);
+    //1 if the instruction in the EX stage is WSR
+    assign wrsysreg_EX_w = (op1_ID == OP1_SYS) && (op2_ID == OP2_WSR);
+    //1 if the instruction in the MEM stage is WSR
+    assign wrsysreg_MEM_w = (op1_EX == OP1_SYS) && (op2_EX == OP2_WSR);
+    
+    //Special WSR then RSR case
+    assign sys_reg_dep = (rs_ID_w != 4'b0000) && (rdsysreg_ID_w)
+                         && (((rs_ID_w == dst_reg_ID) && wrsysreg_EX_w) || ((rs_ID_w == dst_reg_EX)) && wrsysreg_MEM_w);
+                         
+    assign forward_rs_from_EX_sys = sys_reg_dep && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_ID) && (wrsysreg_EX_w));
+    
+    assign forward_rs_from_MEM_sys = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_EX) && (wrsysreg_MEM_w));
     
 
-    
+    // 1 if the instruction currently in ID stage uses the Rs of the instruction in EX or MEM as an operand
+    // and the instruction in the ID stage is not reading from a system register
+    assign data_dep_rs = (rs_ID_w != 4'b0000) && (!rdsysreg_ID_w) && ((rs_ID_w == dst_reg_ID) || (rs_ID_w == dst_reg_EX));
     
     //if there is a data dependency
     //determine where we need to forward from
-    assign forward_rs_from_EX = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_ID))
+    assign forward_rs_from_EX = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_ID) && (!wrsysreg_EX_w))
                                 && ((op1_ID != OP1_SW) && (op1_ID != OP1_BEQ) && (op1_ID != OP1_BLT)
                                 && (op1_ID != OP1_BLE) && (op1_ID != OP1_BNE));
     
-    assign forward_rs_from_MEM = data_dep_rs && (rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_EX)
+    assign forward_rs_from_MEM = data_dep_rs && ((rs_ID_w != 4'b0000) && (rs_ID_w == dst_reg_EX) && (!wrsysreg_MEM_w))
                                  && ((op1_EX != OP1_SW) && (op1_EX != OP1_BEQ) && (op1_EX != OP1_BLT)
                                  && (op1_EX != OP1_BLE) && (op1_EX != OP1_BNE));
 
@@ -560,11 +569,11 @@ module Project(
     assign data_dep_rt = (rt_ID_w != 4'b0000) && ((rt_ID_w == dst_reg_ID) || (rt_ID_w == dst_reg_EX));
     
     //determine where we need to forward from
-    assign forward_rt_from_EX = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_ID))
+    assign forward_rt_from_EX = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_ID) && (!wrsysreg_EX_w))
                                 && ((op1_ID != OP1_SW) && (op1_ID != OP1_BEQ) && (op1_ID != OP1_BLT)
                                 && (op1_ID != OP1_BLE) && (op1_ID != OP1_BNE));
     
-    assign forward_rt_from_MEM = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_EX))
+    assign forward_rt_from_MEM = data_dep_rt_check && data_dep_rt && ((rt_ID_w != 4'b0000) && (rt_ID_w == dst_reg_EX) && (!wrsysreg_MEM_w))
                                  && ((op1_EX != OP1_SW) && (op1_EX != OP1_BEQ) && (op1_EX != OP1_BLT)
                                  && (op1_EX != OP1_BLE) && (op1_EX != OP1_BNE));
 
@@ -733,7 +742,11 @@ module Project(
                          (op1_EX_w == OP1_LW || op1_EX_w == OP1_SW || op1_EX_w == OP1_ADDI) ? (regval1_ID + alu_in_EX_r) :
                          (op1_EX_w == OP1_ANDI) ? (regval1_ID & alu_in_EX_r) :
                          (op1_EX_w == OP1_ORI) ? (regval1_ID | alu_in_EX_r) :
-                         (op1_EX_w == OP1_XORI) ? (regval1_ID ^ alu_in_EX_r) :                         
+                         (op1_EX_w == OP1_XORI) ? (regval1_ID ^ alu_in_EX_r) :
+                         
+                         ((op1_EX_w == OP1_SYS) && (op2_EX_w == OP2_RSR)) ? regval1_ID : 
+                         ((op1_EX_w == OP1_SYS) && (op2_EX_w == OP2_WSR)) ? regval1_ID :
+                         //((op1_EX_w == OP1_SYS) && (op2_EX_w == OP2_RETI)) ?  :
                          {DBITS{1'b0}};
 
     assign is_br_EX_w = ctrlsig_ID[4];
@@ -743,10 +756,12 @@ module Project(
     assign ctrlsig_EX_w = {rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
     // Specify signals such as mispred_EX_w, pcgood_EX_w
-    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL) || ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI));
+    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL);
+    //assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL) || ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI));
+
     assign pcgood_EX_w = (op1_ID == OP1_JAL) ? (regval1_ID + (sxt_imm_ID << 2)) :
                        (br_cond_EX) ? (PC_ID + (sxt_imm_ID << 2)):
-                       ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
+                       //((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
                        PC_FE + INSTSIZE; //this case should not matter
                        
     //PCS[0] <= ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? PCS[1] : PCS[0];
@@ -793,8 +808,8 @@ module Project(
             mem_re_EX <= mem_re_ID; //MemRE
             reg_we_EX <= reg_we_ID; //RegWE
             reg_wr_src_sel_EX <= reg_wr_src_sel_ID; //RegWrSrcSel
-            op1_EX     <= op1_ID;
-            op2_EX     <= op2_ID;
+            op1_EX     <= op1_EX_w;
+            op2_EX     <= op2_EX_w;
             ctrlsig_EX <= ctrlsig_EX_w;
             inst_EX <= inst_ID;
             is_nop_EX <= is_nop_ID;
@@ -818,6 +833,8 @@ module Project(
     reg [DBITS-1:0] aluout_MEM;
     reg reg_we_MEM;
     reg [1:0] reg_wr_src_sel_MEM;
+    reg [5:0] op1_MEM;
+    reg [7:0] op2_MEM;
 
     // D-MEM
     (* ram_init_file = IMEMINITFILE *)
@@ -863,6 +880,8 @@ module Project(
             ctrlsig_MEM        <= 1'b0;
             inst_MEM           <= {INSTBITS{1'b0}};
             is_nop_MEM         <= 1'b0;
+            op1_MEM             <= 6'b000000;
+            op2_MEM             <= 8'b00000000;
         end else begin
             PC_MEM             <= PC_MEM_w;
             mem_val_out_MEM    <= mem_val_out_MEM_w;
@@ -873,18 +892,21 @@ module Project(
             ctrlsig_MEM        <= ctrlsig_EX[0];
             inst_MEM           <= inst_EX;
             is_nop_MEM         <= is_nop_EX;
+            op1_MEM            <= op1_EX;
+            op2_MEM            <= op2_EX;
         end
     end
 
 
     /*** WRITE BACK STAGE ***/
     // Wires
-    wire                   reg_we_WB_w; 
+    wire                 reg_we_WB_w; 
     wire [1:0]           reg_wr_src_sel_WB_w;
     wire [REGNOBITS-1:0] dst_reg_WB_w;
     wire [DBITS-1:0]     PC_WB_w;
     wire [DBITS-1:0]     mem_val_out_WB_w;
     wire [DBITS-1:0]     aluout_WB_w;
+    wire                 isWSR;
 
     // Assignments to wires from MEM buffer
     assign reg_we_WB_w         = reg_we_MEM;
@@ -893,11 +915,12 @@ module Project(
     assign PC_WB_w             = PC_MEM;
     assign mem_val_out_WB_w    = mem_val_out_MEM;
     assign aluout_WB_w         = aluout_MEM;
+    assign isWSR               = ((op1_MEM == OP1_SYS) && (op2_MEM == OP2_WSR));
 
     // Definitions of possible values for RegWrSrcSel
     parameter WRITE_PC       = 2'b00;
     parameter WRITE_MEM_DATA = 2'b01;
-    parameter WRITE_ALUOUT = 2'b10;
+    parameter WRITE_ALUOUT   = 2'b10;
 
     always @ (negedge clk or posedge reset) begin
         if(reset) begin
@@ -917,6 +940,13 @@ module Project(
             regs[13] <= {DBITS{1'b0}};
             regs[14] <= {DBITS{1'b0}};
             regs[15] <= {DBITS{1'b0}};
+        end else if (isWSR) begin
+            case (dst_reg_WB_w)
+                PCS_reg_ID: PCS <= aluout_WB_w;
+                IHA_reg_ID: IHA <= aluout_WB_w;
+                IRA_reg_ID: IRA <= aluout_WB_w;
+                IDN_reg_ID: IDN <= aluout_WB_w;
+            endcase
         end else if(reg_we_WB_w) begin
             case (reg_wr_src_sel_WB_w)
                 WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w;
