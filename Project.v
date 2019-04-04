@@ -12,17 +12,19 @@ module Project(
     output [9:0] LEDR
 );
 
-    parameter DBITS     = 32;
-    parameter INSTSIZE  = 32'd4;
-    parameter INSTBITS  = 32;
-    parameter REGNOBITS = 4;
-    parameter REGWORDS  = (1 << REGNOBITS);
-    parameter IMMBITS   = 16;
-    parameter STARTPC   = 32'h100;
-    parameter ADDRHEX   = 32'hFFFFF000;
-    parameter ADDRLEDR  = 32'hFFFFF020;
-    parameter ADDRKEY   = 32'hFFFFF080;
-    parameter ADDRSW    = 32'hFFFFF090;
+    parameter DBITS      = 32;
+    parameter INSTSIZE   = 32'd4;
+    parameter INSTBITS   = 32;
+    parameter REGNOBITS  = 4;
+    parameter REGWORDS   = (1 << REGNOBITS);
+    parameter IMMBITS    = 16;
+    parameter STARTPC    = 32'h100;
+    parameter ADDRHEX    = 32'hFFFFF000;
+    parameter ADDRLEDR   = 32'hFFFFF020;
+    parameter ADDRKEY    = 32'hFFFFF080;
+    parameter ADDRKCTRL  = 32'hFFFFF084;
+    parameter ADDRSW     = 32'hFFFFF090;
+    parameter ADDRSWCTRL = 32'hFFFFF094;
 
     // Change this to fmedian2.mif before submitting
     parameter IMEMINITFILE = "fmedian2.mif";
@@ -73,10 +75,17 @@ module Project(
     parameter OP2_RSR  = 8'b00000010;
     parameter OP2_WSR  = 8'b00000011;
 
-    parameter HEXBITS  = 24;
-    parameter LEDRBITS = 10;
-    parameter KEYBITS  = 4;
+    parameter HEXBITS    = 24;
+    parameter LEDRBITS   = 10;
+    parameter KEYBITS    = 4;
+    parameter KCTRLBITS  = 3;
+    parameter SWBITS     = 10;
+    parameter SWCTRLBITS = 3;
     
+    // Used to index into control/status registers
+    parameter READYBIT   = 0;
+    parameter OVERRUNBIT = 1;
+    parameter IEBIT      = 2;
     
     //Device number priority encoding
     wire [3:0] device_num =
@@ -179,6 +188,42 @@ module Project(
     //This is set by ORing the individual devices' interrupt request signals
     assign proc_IRQ = (key_IRQ || sw_IRQ || t_IRQ);
 
+    //** KEY **//
+
+    tri  [KEYBITS-1:0]   key_dbus;   // The current value of KDATA (=KEY)
+    wire [KCTRLBITS-1:0] kctrl_reg;  // The current value of KCTRL
+    wire                 key_we;
+    
+    // If memory is write-enabled, use regval2_EX, the memory input value;
+    // if memory is not write-enabled, use high-impedance to allow KEY
+    // to drive it's input value to the data bus
+    assign key_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
+    
+    // Whether we are using the KEY for input or output is determined
+    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
+    // we want input
+    assign key_we = mem_we_MEM_w;
+
+    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg));
+    
+    //** SW **//
+    
+    tri  [SWBITS-1:0]     sw_dbus;     // The current value of SWDATA (=SW)
+    wire [SWCTRLBITS-1:0] swctrl_reg;  // The current value of SWCTRL
+    wire                  sw_we;
+    
+    // If memory is write-enabled, use regval2_EX, the memory input value;
+    // if memory is not write-enabled, use high-impedance to allow SW
+    // to drive it's input value to the data bus
+    assign sw_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
+    
+    // Whether we are using the SW for input or output is determined
+    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
+    // we want input
+    assign sw_we = mem_we_MEM_w;
+
+    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg));  
+    
     //*** FETCH STAGE ***//
     // The PC register and update logic
     wire [DBITS-1:0] pcplus_FE;
@@ -795,7 +840,10 @@ module Project(
     // Read from D-MEM
     assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} :
                                (mem_addr_MEM_w == ADDRHEX) ? {{(DBITS-HEXBITS){1'b0}}, hex_out} :
-                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~KEY} :
+                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~key_dbus} :
+                               (mem_addr_MEM_w == ADDRKCTRL) ? {{(DBITS-KCTRLBITS){1'b0}}, kctrl_reg} :
+                               (mem_addr_MEM_w == ADDRSW) ? {{(DBITS-SWBITS){1'b0}}, sw_dbus} :
+                               (mem_addr_MEM_w == ADDRSWCTRL) ? {{(DBITS-SWCTRLBITS){1'b0}}, swctrl_reg} :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
@@ -939,6 +987,110 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
     assign DBUS = read_ctrl ? hex_out : {DBITS{1'bz}};
     
     assign HEX_OUT = hex_out;
+endmodule
+
+
+module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
+    parameter DBITS     = 32;
+    parameter KEYBITS   = 4;
+    parameter ADDRKDATA = 32'hFFFFF080;
+    parameter KCTRLBITS = 3;
+    parameter ADDRKCTRL = 32'hFFFFF084;
+    
+    // These are for indexing into KCTRL
+    parameter READYBIT   = 0;  
+    parameter OVERRUNBIT = 1;
+    parameter IEBIT      = 2;         // Should it be 4??? Who knows???
+    
+    input  [DBITS-1:0]     ABUS;
+    inout  [DBITS-1:0]     DBUS;
+    input                  WE;
+    input                  CLK;
+    input                  RESET;
+    input  [KEYBITS-1:0]   KEY_IN;    // The input of the Project module named
+                                      // KEY; included as an input to KEY_DEV to
+                                      // allow us to implement KEY as a proper
+                                      // IO device; whenever the processor needs
+                                      // to read the value of the KEY, it should
+                                      // check the value from KEY_DEV's DBUS
+    output [KCTRLBITS-1:0] KCTRL_OUT;
+    
+    reg  [KEYBITS-1:0]   KDATA_old;   // Holds most recent value of KDATA   
+                                      // to allow for detection of changes
+    reg  [KEYBITS-1:0]   KDATA;
+    reg  [KCTRLBITS-1:0] KCTRL;
+    wire                 kctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRKCTRL;
+    wire                 read_ctrl        = WE == 1'b0 && ABUS == ADDRKCTRL;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET) begin
+            KDATA_old <= {KEYBITS{1'b0}};
+            KDATA     <= {KEYBITS{1'b0}};
+            KCTRL     <= {KCTRLBITS{1'b0}};
+        end else begin
+            KDATA_old         <= KDATA;
+            KDATA             <= KEY_IN;
+            KCTRL[READYBIT]   <= (KDATA != KDATA_old) | KCTRL[READYBIT];
+            KCTRL[OVERRUNBIT] <= (kctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)       // Not confident this is correct
+                                 ? DBUS[OVERRUNBIT] : (KDATA != KDATA_old) & KCTRL[READYBIT]; 
+            KCTRL[IEBIT]      <= (kctrl_write_ctrl == 1'b1) ? DBUS[IEBIT] : 1'b0;             // Default assignment to 0 is temporary
+        end
+    end
+    
+    assign DBUS      = read_ctrl ? KDATA : {DBITS{1'bz}};
+    assign KCTRL_OUT = KCTRL;
+endmodule
+
+
+module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
+    parameter DBITS      = 32;
+    parameter SWBITS     = 10;
+    parameter ADDRSWDATA = 32'hFFFFF090;
+    parameter SWCTRLBITS = 3;
+    parameter ADDRSWCTRL = 32'hFFFFF094;
+    
+    // These are for indexing into SWCTRL
+    parameter READYBIT   = 0;  
+    parameter OVERRUNBIT = 1;
+    parameter IEBIT      = 2;           // Should it be 4??? Who knows???
+    
+    input  [DBITS-1:0]      ABUS;
+    inout  [DBITS-1:0]      DBUS;
+    input                   WE;
+    input                   CLK;
+    input                   RESET;
+    input  [SWBITS-1:0]     SW_IN;      // The input of the Project module named
+                                        // SW; included as an input to SW_DEV to
+                                        // allow us to implement SW as a proper
+                                        // IO device; whenever the processor needs
+                                        // to read the value of the SW, it should
+                                        // check the value from SW_DEV's DBUS
+    output [SWCTRLBITS-1:0] SWCTRL_OUT;
+    
+    reg  [SWBITS-1:0]     SWDATA_old;   // Holds most recent value of SWDATA   
+                                        // to allow for detection of changes
+    reg  [SWBITS-1:0]     SWDATA;
+    reg  [SWCTRLBITS-1:0] SWCTRL;
+    wire                  swctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRSWCTRL;
+    wire                  read_ctrl         = WE == 1'b0 && ABUS == ADDRSWCTRL;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET) begin
+            SWDATA_old <= {SWBITS{1'b0}};
+            SWDATA     <= {SWBITS{1'b0}};
+            SWCTRL     <= {SWCTRLBITS{1'b0}};
+        end else begin
+            SWDATA_old         <= SWDATA;
+            SWDATA             <= SW_IN;
+            SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) | SWCTRL[READYBIT];
+            SWCTRL[OVERRUNBIT] <= (swctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)         // Not confident this is correct
+                                  ? DBUS[OVERRUNBIT] : (SWDATA != SWDATA_old) & SWCTRL[READYBIT]; 
+            SWCTRL[IEBIT]      <= (swctrl_write_ctrl == 1'b1) ? DBUS[IEBIT] : 1'b0;               // Default assignment to 0 is temporary
+        end
+    end
+    
+    assign DBUS      = read_ctrl ? SWDATA : {DBITS{1'bz}};
+    assign SWCTRL_OUT = SWCTRL;
 endmodule
 
 
