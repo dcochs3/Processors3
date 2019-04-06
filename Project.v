@@ -27,7 +27,7 @@ module Project(
     parameter ADDRSWCTRL = 32'hFFFFF094;
 
     // Change this to fmedian2.mif before submitting
-//    parameter IMEMINITFILE = "Test.mif";
+//    parameter IMEMINITFILE = "fmedian2.mif";
     parameter IMEMINITFILE = "switch_read_test.mif";
 
     parameter IMEMADDRBITS = 16;
@@ -116,20 +116,17 @@ module Project(
     tri  [DBITS-1:0]    ledr_dbus;
     wire                ledr_we;
     wire [LEDRBITS-1:0] ledr_out;
+    
+    assign ledr_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRLEDR);
 
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow LEDR
     // to drive it's input value to the data bus
-    assign ledr_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-
-    // Whether we are using the LEDR for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign ledr_we = mem_we_MEM_w;
+    assign ledr_dbus = ledr_we ? regval2_EX : {DBITS{1'bz}};
     
-    // Note that the hex_out wire is used as an intermediate value so that
-    // we have a way to get the current output of the device when we want
-    // to read
+    // Note that the ledr_out wire is used as an intermediate value so that
+    // we have a way to assign the current output of our device module to
+    // the device itself
     assign LEDR = ledr_out;
   
     LEDR_DEV my_ledr (.ABUS(io_abus), .DBUS(ledr_dbus), .WE(ledr_we), .CLK(clk), .RESET(reset), .LEDR_OUT(ledr_out));
@@ -148,57 +145,48 @@ module Project(
     SevenSeg ss2(.OUT(HEX2), .IN(HEX[11:8]), .OFF(1'b0));
     SevenSeg ss1(.OUT(HEX1), .IN(HEX[7:4]), .OFF(1'b0));
     SevenSeg ss0(.OUT(HEX0), .IN(HEX[3:0]), .OFF(1'b0));
+    
+    assign hex_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX);
 
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow HEX
     // to drive it's input value to the data bus
-    assign hex_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-
-    // Whether we are using the HEX for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign hex_we = mem_we_MEM_w;
+    assign hex_dbus = hex_we ? regval2_EX : {DBITS{1'bz}};
     
     // Note that the hex_out wire is used as an intermediate value so that
-    // we have a way to get the current output of the device when we want
-    // to read
+    // we have a way to assign the current output of our device module to
+    // the device itself
     assign HEX = hex_out;
   
     HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(hex_out));
 
     //** KEY **//
 
-    tri  [KEYBITS-1:0]   key_dbus;   // The current value of KDATA (=KEY)
+    tri  [DBITS-1:0]     key_dbus;   // The current value of KDATA (=KEY)
     wire [KCTRLBITS-1:0] kctrl_reg;  // The current value of KCTRL
     wire                 key_we;
+    
+    assign key_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRKEY);
     
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow KEY
     // to drive it's input value to the data bus
-    assign key_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-    
-    // Whether we are using the KEY for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign key_we = mem_we_MEM_w;
+    assign key_dbus = key_we ? regval2_EX : {DBITS{1'bz}};
 
     KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg));
     
     //** SW **//
     
-    tri  [SWBITS-1:0]     sw_dbus;     // The current value of SWDATA (=SW)
+    tri  [DBITS-1:0]      sw_dbus;     // The current value of SWDATA (=SW)
     wire [SWCTRLBITS-1:0] swctrl_reg;  // The current value of SWCTRL
     wire                  sw_we;
+    
+    assign sw_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRSW);
     
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow SW
     // to drive it's input value to the data bus
-    assign sw_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-    
-    // Whether we are using the SW for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign sw_we = mem_we_MEM_w;
+    assign sw_dbus = sw_we ? regval2_EX : {DBITS{1'bz}};
 
     SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg));  
     
@@ -251,8 +239,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
 //    initial begin
-//        $readmemh("switch_read_test.hex", imem);
-//        $readmemh("switch_read_test.hex", dmem);
+//        $readmemh("ledr_hex_read_test.hex", imem);
+//        $readmemh("ledr_hex_read_test.hex", dmem);
 //    end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -740,11 +728,11 @@ module Project(
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} :
-                               (mem_addr_MEM_w == ADDRHEX) ? {{(DBITS-HEXBITS){1'b0}}, hex_out} :
-                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~key_dbus} :
+    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? ledr_dbus :
+                               (mem_addr_MEM_w == ADDRHEX) ? hex_dbus :
+                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~(key_dbus[KEYBITS-1:0])} :
                                (mem_addr_MEM_w == ADDRKCTRL) ? {{(DBITS-KCTRLBITS){1'b0}}, kctrl_reg} :
-                               (mem_addr_MEM_w == ADDRSW) ? {{(DBITS-SWBITS){1'b0}}, sw_dbus} :
+                               (mem_addr_MEM_w == ADDRSW) ? sw_dbus :
                                (mem_addr_MEM_w == ADDRSWCTRL) ? {{(DBITS-SWCTRLBITS){1'b0}}, swctrl_reg} :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
@@ -855,7 +843,7 @@ module LEDR_DEV(ABUS, DBUS, WE, CLK, RESET, LEDR_OUT);
     
     // If we want to read, then put the LEDR out value on the data bus;
     // else use high-impedance to allow the processor to drive to data bus
-    assign DBUS = read_ctrl ? ledr_out : {DBITS{1'bz}};
+    assign DBUS = read_ctrl ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} : {DBITS{1'bz}};
     
     assign LEDR_OUT = ledr_out;
 endmodule
@@ -886,7 +874,7 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
     
     // If we want to read, then put the LEDR out value on the data bus;
     // else use high-impedance to allow the processor to drive to data bus
-    assign DBUS = read_ctrl ? hex_out : {DBITS{1'bz}};
+    assign DBUS = read_ctrl ? {{(DBITS-HEXBITS){1'b0}}, hex_out} : {DBITS{1'bz}};
     
     assign HEX_OUT = hex_out;
 endmodule
@@ -939,7 +927,7 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
         end
     end
     
-    assign DBUS      = read_ctrl ? KDATA : {DBITS{1'bz}};
+    assign DBUS      = read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} : {DBITS{1'bz}};
     assign KCTRL_OUT = KCTRL;
 endmodule
 
@@ -991,7 +979,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
         end
     end
     
-    assign DBUS      = read_ctrl ? SWDATA : {DBITS{1'bz}};
+    assign DBUS       = read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} : {DBITS{1'bz}};
     assign SWCTRL_OUT = SWCTRL;
 endmodule
 
