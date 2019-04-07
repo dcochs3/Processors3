@@ -31,7 +31,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
 //    parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "timer_test.mif";
+    parameter IMEMINITFILE = "ready_bit_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -751,8 +751,7 @@ module Project(
     // Read from D-MEM
     assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? ledr_dbus :
                                (mem_addr_MEM_w == ADDRHEX) ? hex_dbus :
-                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~(key_dbus[KEYBITS-1:0])} :
-                               (mem_addr_MEM_w == ADDRKCTRL) ? key_dbus :
+                               ((mem_addr_MEM_w == ADDRKEY) || (mem_addr_MEM_w == ADDRKCTRL)) ? key_dbus :
                                ((mem_addr_MEM_w == ADDRSW) || (mem_addr_MEM_w == ADDRSWCTRL)) ? sw_dbus :
                                ((mem_addr_MEM_w == ADDRTCNT) || (mem_addr_MEM_w == ADDRTLIM)
                                   || (mem_addr_MEM_w == ADDRTCTRL)) ? timer_dbus :
@@ -791,7 +790,7 @@ module Project(
 
     /*** WRITE BACK STAGE ***/
     // Wires
-    wire                   reg_we_WB_w; 
+    wire                 reg_we_WB_w; 
     wire [1:0]           reg_wr_src_sel_WB_w;
     wire [REGNOBITS-1:0] dst_reg_WB_w;
     wire [DBITS-1:0]     PC_WB_w;
@@ -941,7 +940,7 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN);
             KCTRL     <= {KCTRLBITS{1'b0}};
         end else begin
             KDATA_old         <= KDATA;
-            KDATA             <= KEY_IN;
+            KDATA             <= ~KEY_IN;
             KCTRL[READYBIT]   <= (KDATA != KDATA_old) | KCTRL[READYBIT];
             KCTRL[OVERRUNBIT] <= (kctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)       // Not confident this is correct
                                  ? DBUS[OVERRUNBIT] : (KDATA != KDATA_old) & KCTRL[READYBIT]; 
