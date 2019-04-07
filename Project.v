@@ -31,7 +31,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
 //    parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "switch_read_test.mif";
+    parameter IMEMINITFILE = "timer_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -213,8 +213,7 @@ module Project(
     // to drive it's input value to the data bus
     assign timer_dbus = timer_we ? regval2_EX : {DBITS{1'bz}};
     
-    // Todo: Instantiate Timer device
-    
+    TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset), .TLIM_OUT(tlim_reg), .TCTRL_OUT(tctrl_reg));
     
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -760,6 +759,8 @@ module Project(
                                (mem_addr_MEM_w == ADDRKCTRL) ? {{(DBITS-KCTRLBITS){1'b0}}, kctrl_reg} :
                                (mem_addr_MEM_w == ADDRSW) ? sw_dbus :
                                (mem_addr_MEM_w == ADDRSWCTRL) ? {{(DBITS-SWCTRLBITS){1'b0}}, swctrl_reg} :
+                               ((mem_addr_MEM_w == ADDRTCNT) || (mem_addr_MEM_w == ADDRTLIM)
+                                  || (mem_addr_MEM_w == ADDRTCTRL)) ? timer_dbus :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
@@ -1016,7 +1017,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
 endmodule
 
 
-module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCNT_OUT, TLIM_OUT, TCTRL_OUT);
+module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TLIM_OUT, TCTRL_OUT);
     parameter DBITS     = 32;
     parameter TCNTBITS  = 32;
     parameter TLIMBITS  = 32;
@@ -1038,7 +1039,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCNT_OUT, TLIM_OUT, TCTRL_OUT);
     input                  WE;
     input                  CLK;
     input                  RESET;  
-    output [TCNTBITS-1:0]  TCNT_OUT;
+//    output [TCNTBITS-1:0]  TCNT_OUT;
     output [TLIMBITS-1:0]  TLIM_OUT;
     output [TCTRLBITS-1:0] TCTRL_OUT;
     
@@ -1090,7 +1091,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCNT_OUT, TLIM_OUT, TCTRL_OUT);
                        tlim_read_ctrl ? {{(DBITS-TLIMBITS){1'b0}}, TLIM} :
                        tctrl_read_ctrl ? {{(DBITS-TCTRLBITS){1'b0}}, TCTRL} :
                        {DBITS{1'bz}};
-    assign TCNT_OUT  = TCNT;
+//    assign TCNT_OUT  = TCNT;
     assign TLIM_OUT  = TLIM;
     assign TCTRL_OUT = TCTRL;
 endmodule
