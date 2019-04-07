@@ -25,6 +25,9 @@ module Project(
     parameter ADDRKCTRL  = 32'hFFFFF084;
     parameter ADDRSW     = 32'hFFFFF090;
     parameter ADDRSWCTRL = 32'hFFFFF094;
+    parameter ADDRTCNT   = 32'hFFFFF100;
+    parameter ADDRTLIM   = 32'hFFFFF104;
+    parameter ADDRTCTRL  = 32'hFFFFF108;
 
     // Change this to fmedian2.mif before submitting
 //    parameter IMEMINITFILE = "fmedian2.mif";
@@ -75,6 +78,9 @@ module Project(
     parameter KCTRLBITS  = 3;
     parameter SWBITS     = 10;
     parameter SWCTRLBITS = 3;
+    parameter TCNTBITS   = 32;
+    parameter TLIMBITS   = 32;
+    parameter TCTRLBITS  = 3;
     
     // Used to index into control/status registers
     parameter READYBIT   = 0;
@@ -166,7 +172,8 @@ module Project(
     wire [KCTRLBITS-1:0] kctrl_reg;  // The current value of KCTRL
     wire                 key_we;
     
-    assign key_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRKEY);
+    // Only check for KCTRL because KDATA cannot be written to
+    assign key_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRKCTRL);
     
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow KEY
@@ -181,7 +188,8 @@ module Project(
     wire [SWCTRLBITS-1:0] swctrl_reg;  // The current value of SWCTRL
     wire                  sw_we;
     
-    assign sw_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRSW);
+    // Only check for SWCTRL because SWDATA cannot be written to
+    assign sw_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRSWCTRL);
     
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow SW
@@ -189,6 +197,24 @@ module Project(
     assign sw_dbus = sw_we ? regval2_EX : {DBITS{1'bz}};
 
     SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg));  
+    
+    //** TIMER **//
+    
+    tri  [DBITS-1:0] timer_dbus; // The current value of TCNT (=the current timer value)
+    wire [DBITS-1:0] tlim_reg;   // The current value of TLIM (=the timer limit)
+    wire [DBITS-1:0] tctrl_reg;  // The current value of TCTRL
+    wire             timer_we;   // 1 if writing to TCNT, TLIM, *or* TCTRL
+    
+    assign timer_we = mem_we_MEM_w && ((mem_addr_MEM_w == ADDRTCNT)
+                      || (mem_addr_MEM_w == ADDRTLIM) || (mem_addr_MEM_w == ADDRTCTRL));
+    
+    // If memory is write-enabled, use regval2_EX, the memory input value;
+    // if memory is not write-enabled, use high-impedance to allow TIMER
+    // to drive it's input value to the data bus
+    assign timer_dbus = timer_we ? regval2_EX : {DBITS{1'bz}};
+    
+    // Todo: Instantiate Timer device
+    
     
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -910,7 +936,8 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
     reg  [KEYBITS-1:0]   KDATA;
     reg  [KCTRLBITS-1:0] KCTRL;
     wire                 kctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRKCTRL;
-    wire                 read_ctrl        = WE == 1'b0 && ABUS == ADDRKCTRL;
+    wire                 kdata_read_ctrl  = WE == 1'b0 && ABUS == ADDRKDATA;
+    wire                 kctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRKCTRL;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET) begin
@@ -927,7 +954,9 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
         end
     end
     
-    assign DBUS      = read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} : {DBITS{1'bz}};
+    assign DBUS      = kdata_read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} :
+                       kctrl_read_ctrl ? {{(DBITS-KCTRLBITS){1'b0}}, KCTRL} :
+                       {DBITS{1'bz}};
     assign KCTRL_OUT = KCTRL;
 endmodule
 
@@ -962,7 +991,8 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
     reg  [SWBITS-1:0]     SWDATA;
     reg  [SWCTRLBITS-1:0] SWCTRL;
     wire                  swctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRSWCTRL;
-    wire                  read_ctrl         = WE == 1'b0 && ABUS == ADDRSWCTRL;
+    wire                  swdata_read_ctrl  = WE == 1'b0 && ABUS == ADDRSWDATA;
+    wire                  swctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRSWCTRL;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET) begin
@@ -979,8 +1009,90 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
         end
     end
     
-    assign DBUS       = read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} : {DBITS{1'bz}};
+    assign DBUS       = swdata_read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} :
+                        swctrl_read_ctrl ? {{(DBITS-SWCTRLBITS){1'b0}}, SWCTRL} :
+                        {DBITS{1'bz}};
     assign SWCTRL_OUT = SWCTRL;
+endmodule
+
+
+module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCNT_OUT, TLIM_OUT, TCTRL_OUT);
+    parameter DBITS     = 32;
+    parameter TCNTBITS  = 32;
+    parameter TLIMBITS  = 32;
+    parameter TCTRLBITS = 3;
+    parameter ADDRTCNT  = 32'hFFFFF100;
+    parameter ADDRTLIM  = 32'hFFFFF104;
+    parameter ADDRTCTRL = 32'hFFFFF108;
+    
+    // These are for indexing into TCTRL
+    parameter READYBIT   = 0;  
+    parameter OVERRUNBIT = 1;
+    parameter IEBIT      = 2;           // Should it be 4??? Who knows???
+    
+    // Number of clock cycles (with 50 MHZ clock) in different time units
+    parameter ONE_MILLISECOND = 'd50000;
+    
+    input  [DBITS-1:0]     ABUS;
+    inout  [DBITS-1:0]     DBUS;
+    input                  WE;
+    input                  CLK;
+    input                  RESET;  
+    output [TCNTBITS-1:0]  TCNT_OUT;
+    output [TLIMBITS-1:0]  TLIM_OUT;
+    output [TCTRLBITS-1:0] TCTRL_OUT;
+    
+    reg  [TCNTBITS-1:0]  TCNT;
+    reg  [TLIMBITS-1:0]  TLIM;
+    reg  [TCTRLBITS-1:0] TCTRL;
+    wire                 tcnt_write_ctrl  = WE == 1'b1 && ABUS == ADDRTCNT;
+    wire                 tcnt_read_ctrl   = WE == 1'b0 && ABUS == ADDRTCNT;
+    wire                 tlim_write_ctrl  = WE == 1'b1 && ABUS == ADDRTLIM;
+    wire                 tlim_read_ctrl   = WE == 1'b0 && ABUS == ADDRTLIM;
+    wire                 tctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRTCTRL;
+    wire                 tctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRTCTRL;
+    
+    // Used to keep track of when to increment TCNT
+    reg [DBITS-1:0] clock_cycles;
+    reg [DBITS-1:0] time_unit;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET) begin
+            TCNT         <= {TCNTBITS{1'b0}};
+            TLIM         <= {TLIMBITS{1'b0}};
+            TCTRL        <= {TCTRLBITS{1'b0}};
+            clock_cycles <= {DBITS-1{1'b0}};
+            time_unit    <= ONE_MILLISECOND;
+        end else begin
+            if (tcnt_write_ctrl) begin
+                TCNT         <= DBUS;
+                clock_cycles <= 0;
+            end else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1))) begin
+                TCNT         <= 0;
+                clock_cycles <= 0;
+            end else if (clock_cycles >= (time_unit - 1)) begin
+                TCNT            <= TCNT + 1;
+                clock_cycles    <= 0;
+            end else
+                clock_cycles <= clock_cycles + 1;
+            TLIM              <= tlim_write_ctrl ? DBUS : TLIM;
+            TCTRL[READYBIT]   <= tctrl_write_ctrl && (DBUS[READYBIT] == 1'b0) ? 1'b0 :
+                                 (TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) ? 1'b1 :
+                                 TCTRL[READYBIT];
+            TCTRL[OVERRUNBIT] <= tctrl_write_ctrl && (DBUS[OVERRUNBIT] == 1'b0) ? 1'b0 :
+                                 (TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) && TCTRL[READYBIT] ? 1'b1 :
+                                 TCTRL[OVERRUNBIT];
+            TCTRL[IEBIT]      <= tctrl_write_ctrl ? DBUS[IEBIT] : 1'b0;  // Default assignment to 0 is temporary
+        end
+    end
+    
+    assign DBUS      = tcnt_read_ctrl ? {{(DBITS-TCNTBITS){1'b0}}, TCNT} :
+                       tlim_read_ctrl ? {{(DBITS-TLIMBITS){1'b0}}, TLIM} :
+                       tctrl_read_ctrl ? {{(DBITS-TCTRLBITS){1'b0}}, TCTRL} :
+                       {DBITS{1'bz}};
+    assign TCNT_OUT  = TCNT;
+    assign TLIM_OUT  = TLIM;
+    assign TCTRL_OUT = TCTRL;
 endmodule
 
 
