@@ -31,7 +31,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
 //    parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "ready_bit_test.mif";
+    parameter IMEMINITFILE = "overrun_bit_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -941,16 +941,25 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN);
         end else begin
             KDATA_old         <= KDATA;
             KDATA             <= ~KEY_IN;
-            KCTRL[READYBIT]   <= (KDATA != KDATA_old) | KCTRL[READYBIT];
-            KCTRL[OVERRUNBIT] <= (kctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)       // Not confident this is correct
-                                 ? DBUS[OVERRUNBIT] : (KDATA != KDATA_old) & KCTRL[READYBIT]; 
-            KCTRL[IEBIT]      <= (kctrl_write_ctrl == 1'b1) ? DBUS[IEBIT] : 1'b0;             // Default assignment to 0 is temporary
+            KCTRL[READYBIT]   <= (KDATA != KDATA_old) || (KCTRL[READYBIT] == 1'b1);
+            
+            if ((kctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+                KCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((KDATA != KDATA_old) && (KCTRL[READYBIT] == 1'b1))
+                KCTRL[OVERRUNBIT] <= 1'b1;
+            else
+                KCTRL[OVERRUNBIT] <= KCTRL[OVERRUNBIT];
+                
+            if (kctrl_write_ctrl == 1'b1)
+                KCTRL[IEBIT] <= DBUS[IEBIT];
+            else
+                KCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
         end
     end
     
-    assign DBUS      = kdata_read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} :
-                       kctrl_read_ctrl ? {{(DBITS-KCTRLBITS){1'b0}}, KCTRL} :
-                       {DBITS{1'bz}};
+    assign DBUS = kdata_read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} :
+                  kctrl_read_ctrl ? {{(DBITS-KCTRLBITS){1'b0}}, KCTRL} :
+                  {DBITS{1'bz}};
 endmodule
 
 
@@ -994,16 +1003,25 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
         end else begin
             SWDATA_old         <= SWDATA;
             SWDATA             <= SW_IN;
-            SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) | SWCTRL[READYBIT];
-            SWCTRL[OVERRUNBIT] <= (swctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)         // Not confident this is correct
-                                  ? DBUS[OVERRUNBIT] : (SWDATA != SWDATA_old) & SWCTRL[READYBIT]; 
-            SWCTRL[IEBIT]      <= (swctrl_write_ctrl == 1'b1) ? DBUS[IEBIT] : 1'b0;               // Default assignment to 0 is temporary
+            SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
+            
+            if ((swctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+                SWCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((SWDATA != SWDATA_old) && (SWCTRL[READYBIT] == 1'b1))
+                SWCTRL[OVERRUNBIT] <= 1'b1;
+            else
+                SWCTRL[OVERRUNBIT] <= SWCTRL[OVERRUNBIT];
+                
+            if (swctrl_write_ctrl == 1'b1)
+                SWCTRL[IEBIT] <= DBUS[IEBIT];
+            else
+                SWCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
         end
     end
     
-    assign DBUS       = swdata_read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} :
-                        swctrl_read_ctrl ? {{(DBITS-SWCTRLBITS){1'b0}}, SWCTRL} :
-                        {DBITS{1'bz}};
+    assign DBUS = swdata_read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} :
+                  swctrl_read_ctrl ? {{(DBITS-SWCTRLBITS){1'b0}}, SWCTRL} :
+                  {DBITS{1'bz}};
 endmodule
 
 
@@ -1063,14 +1081,27 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET);
                 clock_cycles    <= 0;
             end else
                 clock_cycles <= clock_cycles + 1;
-            TLIM              <= tlim_write_ctrl ? DBUS : TLIM;
-            TCTRL[READYBIT]   <= tctrl_write_ctrl && (DBUS[READYBIT] == 1'b0) ? 1'b0 :
-                                 (TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) ? 1'b1 :
-                                 TCTRL[READYBIT];
-            TCTRL[OVERRUNBIT] <= tctrl_write_ctrl && (DBUS[OVERRUNBIT] == 1'b0) ? 1'b0 :
-                                 (TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) && TCTRL[READYBIT] ? 1'b1 :
-                                 TCTRL[OVERRUNBIT];
-            TCTRL[IEBIT]      <= tctrl_write_ctrl ? DBUS[IEBIT] : 1'b0;  // Default assignment to 0 is temporary
+                
+            TLIM <= tlim_write_ctrl ? DBUS : TLIM;
+            
+            if ((tctrl_write_ctrl == 1'b1) && (DBUS[READYBIT] == 1'b0))
+                TCTRL[READYBIT] <= 1'b0;
+            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)))
+                TCTRL[READYBIT] <= 1'b1;
+            else
+                TCTRL[READYBIT] <= TCTRL[READYBIT];
+                
+            if ((tctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+                TCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) && (TCTRL[READYBIT] == 1'b1))
+                TCTRL[OVERRUNBIT] <= 1'b1;
+            else
+                TCTRL[OVERRUNBIT] <= TCTRL[OVERRUNBIT];
+                
+            if (tctrl_write_ctrl == 1'b1)
+                TCTRL[IEBIT] <= DBUS[IEBIT];
+            else
+                TCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
         end
     end
     
