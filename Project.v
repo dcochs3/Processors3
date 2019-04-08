@@ -975,6 +975,10 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
     parameter OVERRUNBIT = 1;
     parameter IEBIT      = 2;           // Should it be 4??? Who knows???
     
+    // Number of clock cycles (with 50 MHZ clock) in different time units
+    parameter ONE_MILLISECOND = 'd50000;
+    parameter TEN_MILLISECONDS = 'd500000;
+    
     input  [DBITS-1:0]      ABUS;
     inout  [DBITS-1:0]      DBUS;
     input                   WE;
@@ -995,15 +999,36 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
     wire                  swdata_read_ctrl  = WE == 1'b0 && ABUS == ADDRSWDATA;
     wire                  swctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRSWCTRL;
     
+    // Used for keeping track of when 
+    reg [DBITS-1:0]  clock_cycles;
+    reg [DBITS-1:0]  time_unit;
+    reg [SWBITS-1:0] SWDATA_temp;
+    reg [SWBITS-1:0] SWDATA_temp_old;
+    
     always @ (posedge CLK or posedge RESET) begin
         if (RESET) begin
-            SWDATA_old <= {SWBITS{1'b0}};
-            SWDATA     <= {SWBITS{1'b0}};
-            SWCTRL     <= {SWCTRLBITS{1'b0}};
+            SWDATA_old   <= {SWBITS{1'b0}};
+            SWDATA       <= {SWBITS{1'b0}};
+            SWCTRL       <= {SWCTRLBITS{1'b0}};
+            clock_cycles <= 0;
+            time_unit    <= TEN_MILLISECONDS;
         end else begin
-            SWDATA_old         <= SWDATA;
-            SWDATA             <= SW_IN;
-            SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
+            if (clock_cycles + 1 >= time_unit && SWDATA_temp == SWDATA_temp_old) begin
+                SWDATA_old         <= SWDATA;
+                SWDATA             <= SWDATA_temp;
+                SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
+                clock_cycles       <= 0;
+                SWDATA_temp        <= SW_IN;
+                SWDATA_temp_old    <= SW_IN;
+            end else if (SWDATA_temp == SWDATA_temp_old) begin
+                clock_cycles    <= clock_cycles + 1;
+                SWDATA_temp     <= SW_IN;
+                SWDATA_temp_old <= SWDATA_temp;
+            end else begin
+                clock_cycles    <= 0;
+                SWDATA_temp     <= SW_IN;
+                SWDATA_temp_old <= SW_IN;
+            end
             
             if ((swctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
                 SWCTRL[OVERRUNBIT] <= 1'b0;
@@ -1040,7 +1065,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET);
     parameter IEBIT      = 2;           // Should it be 4??? Who knows???
     
     // Number of clock cycles (with 50 MHZ clock) in different time units
-    parameter ONE_MILLISECOND = 'd50000;
+    parameter ONE_MILLISECOND  = 'd50000;
     
     input  [DBITS-1:0]     ABUS;
     inout  [DBITS-1:0]     DBUS;
