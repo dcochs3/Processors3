@@ -302,21 +302,7 @@ module Project(
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
         end
-        else if (proc_IRQ) begin
-            //Things we need TODO if we detect an interrupt:
-
-            //Save the next instruction address in IRA
-            //IRA <= pcplus_FE;
-            
-            //Determine which device raised the interrupt and save that device's ID in IDN
-            //IDN <= device_num;
-            
-            //Disable interrupts:
-                //Copy the IE bit to the OIE bit in the PCS register
-                //Then set IE to 0
-            //PCS[1] <= PCS[0];   //OIE <= IE
-            //PCS[0] <= 1'b0;     //IE <= 0
-            
+        else if (proc_IRQ) begin          
             //Jump to the interrupt handler (set the PC value to be the address in IHA)
             PC_REG <= IHA;
             PC_FE <= IHA;
@@ -489,29 +475,28 @@ module Project(
                                  || (op1_ID_w == OP1_BNE)
                                  || (op1_ID_w == OP1_JAL))};
     
-    assign mem_we_ID_w         = (inst_FE != {DBITS{1'b0}}) && (op1_ID_w == OP1_SW);
+    assign mem_we_ID_w         = (inst_FE != {DBITS{1'b0}}) && ((op1_ID_w == OP1_SW) || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR)));
     
     assign mem_re_ID_w         = (inst_FE != {DBITS{1'b0}}) && (op1_ID_w == OP1_LW);
     
     assign reg_we_ID_w         = (inst_FE != {DBITS{1'b0}}) &&
                                  ((op1_ID_w == OP1_ALUR)
-                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
-                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR))
                                  || (op1_ID_w == OP1_JAL)
                                  || (op1_ID_w == OP1_LW)
                                  || (op1_ID_w == OP1_ADDI)
                                  || (op1_ID_w == OP1_ANDI)
                                  || (op1_ID_w == OP1_ORI)
-                                 || (op1_ID_w == OP1_XORI));
+                                 || (op1_ID_w == OP1_XORI))
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR));
                                  
     assign reg_wr_src_sel_ID_w = {((op1_ID_w == OP1_ALUR)
-                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
-                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR))
                                  || (op1_ID_w == OP1_ADDI)
                                  || (op1_ID_w == OP1_ANDI)
                                  || (op1_ID_w == OP1_ORI)
                                  || (op1_ID_w == OP1_XORI)),
-                                 (op1_ID_w == OP1_LW)};
+                                 (op1_ID_w == OP1_LW)
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
+                                 || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR))};
     
     assign reg_wr_dst_sel_ID_w = (inst_FE != {DBITS{1'b0}}) && ((op1_ID_w == OP1_ALUR)
                                  || ((op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_WSR))
@@ -821,12 +806,13 @@ module Project(
     wire rd_mem_MEM_w;
     wire wr_mem_MEM_w;
 
-    wire [DBITS-1:0] PC_MEM_w;
-    wire mem_re_MEM_w;
-    wire [DBITS-1:0] aluout_MEM_w;
-    wire [REGNOBITS-1:0] dst_reg_MEM_w;
-    wire reg_we_MEM_w;
-    wire [1:0] reg_wr_src_sel_MEM_w;
+    wire [DBITS-1:0]        PC_MEM_w;
+    wire                    mem_re_MEM_w;
+    wire [DBITS-1:0]        aluout_MEM_w;
+    wire [REGNOBITS-1:0]    dst_reg_MEM_w;
+    wire                    reg_we_MEM_w;
+    wire [1:0]              reg_wr_src_sel_MEM_w;
+    wire                    isRSR;
 
     reg [DBITS-1:0] PC_MEM;
     reg [DBITS-1:0] mem_val_out_MEM;
@@ -849,6 +835,7 @@ module Project(
     assign reg_we_MEM_w = reg_we_EX;
     assign reg_wr_src_sel_MEM_w = reg_wr_src_sel_EX;
     assign dst_reg_MEM_w = dst_reg_EX;
+    assign isRSR = (op1_EX == OP1_SYS) && (op2_EX == OP2_RSR);
 
     assign rd_mem_MEM_w = ctrlsig_EX[2];
     assign wr_mem_MEM_w = ctrlsig_EX[1];
@@ -861,13 +848,50 @@ module Project(
                                (mem_addr_MEM_w == ADDRKCTRL) ? {{(DBITS-KCTRLBITS){1'b0}}, kctrl_reg} :
                                (mem_addr_MEM_w == ADDRSW) ? {{(DBITS-SWBITS){1'b0}}, sw_dbus} :
                                (mem_addr_MEM_w == ADDRSWCTRL) ? {{(DBITS-SWCTRLBITS){1'b0}}, swctrl_reg} :
+                               //reading from system registers
+                               (isRSR && (mem_addr_MEM_w == PCS_reg_ID)) ? PCS :
+                               (isRSR && (mem_addr_MEM_w == IHA_reg_ID)) ? IHA :
+                               (isRSR && (mem_addr_MEM_w == IRA_reg_ID)) ? IRA :
+                               (isRSR && (mem_addr_MEM_w == IDN_reg_ID)) ? IDN :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
     always @ (posedge clk) begin
-        if(mem_we_MEM_w)
+        if(mem_we_MEM_w) begin
             dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]] <= regval2_EX;
+        end
     end
+
+    //System register and interrupt handling
+    always @ (posedge clk) begin
+        if (proc_IRQ) begin
+            //Things we need TODO if we detect an interrupt:
+            //Save the next instruction address in IRA
+            IRA <= pcplus_FE;
+            
+            //Determine which device raised the interrupt and save that device's ID in IDN
+            IDN <= device_num;
+            
+            //Disable interrupts:
+                //Copy the IE bit to the OIE bit in the PCS register
+                //Then set IE to 0
+            PCS[1] <= PCS[0];   //OIE <= IE
+            PCS[0] <= 1'b0;     //IE <= 0
+        end else if ((op1_EX == OP1_SYS) && (op2_EX == OP2_RETI)) begin
+            PCS[0] <= PCS[1];
+        end else if ((op1_EX == OP1_SYS) && (op2_EX == OP2_WSR)) begin
+            //writing to system registers
+            case (dst_reg_MEM_w)
+                PCS_reg_ID: PCS <= mem_addr_MEM_w;
+                IHA_reg_ID: IHA <= mem_addr_MEM_w;
+                IRA_reg_ID: IRA <= mem_addr_MEM_w;
+                IDN_reg_ID: IDN <= mem_addr_MEM_w;
+            endcase     
+        end
+    end
+    
+    
+
 
     always @ (posedge clk or posedge reset) begin
         if(reset) begin
@@ -906,7 +930,6 @@ module Project(
     wire [DBITS-1:0]     PC_WB_w;
     wire [DBITS-1:0]     mem_val_out_WB_w;
     wire [DBITS-1:0]     aluout_WB_w;
-    wire                 isWSR;
 
     // Assignments to wires from MEM buffer
     assign reg_we_WB_w         = reg_we_MEM;
@@ -915,7 +938,6 @@ module Project(
     assign PC_WB_w             = PC_MEM;
     assign mem_val_out_WB_w    = mem_val_out_MEM;
     assign aluout_WB_w         = aluout_MEM;
-    assign isWSR               = ((op1_MEM == OP1_SYS) && (op2_MEM == OP2_WSR));
 
     // Definitions of possible values for RegWrSrcSel
     parameter WRITE_PC       = 2'b00;
@@ -940,13 +962,6 @@ module Project(
             regs[13] <= {DBITS{1'b0}};
             regs[14] <= {DBITS{1'b0}};
             regs[15] <= {DBITS{1'b0}};
-        end else if (isWSR) begin
-            case (dst_reg_WB_w)
-                PCS_reg_ID: PCS <= aluout_WB_w;
-                IHA_reg_ID: IHA <= aluout_WB_w;
-                IRA_reg_ID: IRA <= aluout_WB_w;
-                IDN_reg_ID: IDN <= aluout_WB_w;
-            endcase
         end else if(reg_we_WB_w) begin
             case (reg_wr_src_sel_WB_w)
                 WRITE_PC:       regs[dst_reg_WB_w] <= PC_WB_w;
