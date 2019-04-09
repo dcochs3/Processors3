@@ -181,7 +181,7 @@ module Project(
     
     assign key_IRQ = kctrl_reg[IEBIT] && kctrl_reg[READYBIT];
     assign sw_IRQ = swctrl_reg[IEBIT] && swctrl_reg[READYBIT];
-    //assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
+    assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
     
     //This is set by ORing the individual devices' interrupt request signals
     //And it is only set if interrupts are enabled (PCS[0] == 1)
