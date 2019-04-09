@@ -25,6 +25,9 @@ module Project(
     parameter ADDRKCTRL  = 32'hFFFFF084;
     parameter ADDRSW     = 32'hFFFFF090;
     parameter ADDRSWCTRL = 32'hFFFFF094;
+    parameter ADDRTCNT   = 32'hFFFFF100;
+    parameter ADDRTLIM   = 32'hFFFFF104;
+    parameter ADDRTCTRL  = 32'hFFFFF108;
 
     // Change this to fmedian2.mif before submitting
     parameter IMEMINITFILE = "fmedian2.mif";
@@ -81,6 +84,9 @@ module Project(
     parameter KCTRLBITS  = 3;
     parameter SWBITS     = 10;
     parameter SWCTRLBITS = 3;
+    parameter TCNTBITS   = 32;
+    parameter TLIMBITS   = 32;
+    parameter TCTRLBITS  = 3;
     
     // Used to index into control/status registers
     parameter READYBIT   = 0;
@@ -122,20 +128,17 @@ module Project(
     tri  [DBITS-1:0]    ledr_dbus;
     wire                ledr_we;
     wire [LEDRBITS-1:0] ledr_out;
+    
+    assign ledr_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRLEDR);
 
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow LEDR
     // to drive it's input value to the data bus
-    assign ledr_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-
-    // Whether we are using the LEDR for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign ledr_we = mem_we_MEM_w;
+    assign ledr_dbus = ledr_we ? regval2_EX : {DBITS{1'bz}};
     
-    // Note that the hex_out wire is used as an intermediate value so that
-    // we have a way to get the current output of the device when we want
-    // to read
+    // Note that the ledr_out wire is used as an intermediate value so that
+    // we have a way to assign the current output of our device module to
+    // the device itself
     assign LEDR = ledr_out;
   
     LEDR_DEV my_ledr (.ABUS(io_abus), .DBUS(ledr_dbus), .WE(ledr_we), .CLK(clk), .RESET(reset), .LEDR_OUT(ledr_out));
@@ -154,20 +157,17 @@ module Project(
     SevenSeg ss2(.OUT(HEX2), .IN(HEX[11:8]), .OFF(1'b0));
     SevenSeg ss1(.OUT(HEX1), .IN(HEX[7:4]), .OFF(1'b0));
     SevenSeg ss0(.OUT(HEX0), .IN(HEX[3:0]), .OFF(1'b0));
+    
+    assign hex_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRHEX);
 
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow HEX
     // to drive it's input value to the data bus
-    assign hex_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-
-    // Whether we are using the HEX for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign hex_we = mem_we_MEM_w;
+    assign hex_dbus = hex_we ? regval2_EX : {DBITS{1'bz}};
     
     // Note that the hex_out wire is used as an intermediate value so that
-    // we have a way to get the current output of the device when we want
-    // to read
+    // we have a way to assign the current output of our device module to
+    // the device itself
     assign HEX = hex_out;
   
     HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(hex_out));
@@ -196,39 +196,48 @@ module Project(
 
     //** KEY **//
 
-    tri  [KEYBITS-1:0]   key_dbus;   // The current value of KDATA (=KEY)
-    wire [KCTRLBITS-1:0] kctrl_reg;  // The current value of KCTRL
+    tri  [DBITS-1:0]     key_dbus;   // The current value of KDATA (=KEY)
     wire                 key_we;
+    
+    // Only check for KCTRL because KDATA cannot be written to
+    assign key_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRKCTRL);
     
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow KEY
     // to drive it's input value to the data bus
-    assign key_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-    
-    // Whether we are using the KEY for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign key_we = mem_we_MEM_w;
+    assign key_dbus = key_we ? regval2_EX : {DBITS{1'bz}};
 
-    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg));
+    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY));
     
     //** SW **//
     
-    tri  [SWBITS-1:0]     sw_dbus;     // The current value of SWDATA (=SW)
-    wire [SWCTRLBITS-1:0] swctrl_reg;  // The current value of SWCTRL
+    tri  [DBITS-1:0]      sw_dbus;
     wire                  sw_we;
+    
+    // Only check for SWCTRL because SWDATA cannot be written to
+    assign sw_we = mem_we_MEM_w && (mem_addr_MEM_w == ADDRSWCTRL);
     
     // If memory is write-enabled, use regval2_EX, the memory input value;
     // if memory is not write-enabled, use high-impedance to allow SW
     // to drive it's input value to the data bus
-    assign sw_dbus = mem_we_MEM_w ? regval2_EX : {DBITS{1'bz}};
-    
-    // Whether we are using the SW for input or output is determined
-    // only by mem_we_MEM_w; if it is 1, we want output, and if it's 0,
-    // we want input
-    assign sw_we = mem_we_MEM_w;
+    assign sw_dbus = sw_we ? regval2_EX : {DBITS{1'bz}};
 
-    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg));  
+    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW));  
+    
+    //** TIMER **//
+    
+    tri  [DBITS-1:0] timer_dbus;
+    wire             timer_we;   // 1 if writing to TCNT, TLIM, *or* TCTRL
+    
+    assign timer_we = mem_we_MEM_w && ((mem_addr_MEM_w == ADDRTCNT)
+                      || (mem_addr_MEM_w == ADDRTLIM) || (mem_addr_MEM_w == ADDRTCTRL));
+    
+    // If memory is write-enabled, use regval2_EX, the memory input value;
+    // if memory is not write-enabled, use high-impedance to allow TIMER
+    // to drive it's input value to the data bus
+    assign timer_dbus = timer_we ? regval2_EX : {DBITS{1'bz}};
+    
+    TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset));
     
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -842,12 +851,12 @@ module Project(
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} :
-                               (mem_addr_MEM_w == ADDRHEX) ? {{(DBITS-HEXBITS){1'b0}}, hex_out} :
-                               (mem_addr_MEM_w == ADDRKEY) ? {{(DBITS-KEYBITS){1'b0}}, ~key_dbus} :
-                               (mem_addr_MEM_w == ADDRKCTRL) ? {{(DBITS-KCTRLBITS){1'b0}}, kctrl_reg} :
-                               (mem_addr_MEM_w == ADDRSW) ? {{(DBITS-SWBITS){1'b0}}, sw_dbus} :
-                               (mem_addr_MEM_w == ADDRSWCTRL) ? {{(DBITS-SWCTRLBITS){1'b0}}, swctrl_reg} :
+    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? ledr_dbus :
+                               (mem_addr_MEM_w == ADDRHEX) ? hex_dbus :
+                               ((mem_addr_MEM_w == ADDRKEY) || (mem_addr_MEM_w == ADDRKCTRL)) ? key_dbus :
+                               ((mem_addr_MEM_w == ADDRSW) || (mem_addr_MEM_w == ADDRSWCTRL)) ? sw_dbus :
+                               ((mem_addr_MEM_w == ADDRTCNT) || (mem_addr_MEM_w == ADDRTLIM)
+                                  || (mem_addr_MEM_w == ADDRTCTRL)) ? timer_dbus :
                                //reading from system registers
                                (isRSR && (mem_addr_MEM_w == PCS_reg_ID)) ? PCS :
                                (isRSR && (mem_addr_MEM_w == IHA_reg_ID)) ? IHA :
@@ -998,7 +1007,7 @@ module LEDR_DEV(ABUS, DBUS, WE, CLK, RESET, LEDR_OUT);
     
     // If we want to read, then put the LEDR out value on the data bus;
     // else use high-impedance to allow the processor to drive to data bus
-    assign DBUS = read_ctrl ? ledr_out : {DBITS{1'bz}};
+    assign DBUS = read_ctrl ? {{(DBITS-LEDRBITS){1'b0}}, ledr_out} : {DBITS{1'bz}};
     
     assign LEDR_OUT = ledr_out;
 endmodule
@@ -1029,13 +1038,13 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
     
     // If we want to read, then put the LEDR out value on the data bus;
     // else use high-impedance to allow the processor to drive to data bus
-    assign DBUS = read_ctrl ? hex_out : {DBITS{1'bz}};
+    assign DBUS = read_ctrl ? {{(DBITS-HEXBITS){1'b0}}, hex_out} : {DBITS{1'bz}};
     
     assign HEX_OUT = hex_out;
 endmodule
 
 
-module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
+module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN);
     parameter DBITS     = 32;
     parameter KEYBITS   = 4;
     parameter ADDRKDATA = 32'hFFFFF080;
@@ -1058,14 +1067,14 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
                                       // IO device; whenever the processor needs
                                       // to read the value of the KEY, it should
                                       // check the value from KEY_DEV's DBUS
-    output [KCTRLBITS-1:0] KCTRL_OUT;
     
     reg  [KEYBITS-1:0]   KDATA_old;   // Holds most recent value of KDATA   
                                       // to allow for detection of changes
     reg  [KEYBITS-1:0]   KDATA;
     reg  [KCTRLBITS-1:0] KCTRL;
     wire                 kctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRKCTRL;
-    wire                 read_ctrl        = WE == 1'b0 && ABUS == ADDRKCTRL;
+    wire                 kdata_read_ctrl  = WE == 1'b0 && ABUS == ADDRKDATA;
+    wire                 kctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRKCTRL;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET) begin
@@ -1074,20 +1083,30 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
             KCTRL     <= {KCTRLBITS{1'b0}};
         end else begin
             KDATA_old         <= KDATA;
-            KDATA             <= KEY_IN;
-            KCTRL[READYBIT]   <= (KDATA != KDATA_old) | KCTRL[READYBIT];
-            KCTRL[OVERRUNBIT] <= (kctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)       // Not confident this is correct
-                                 ? DBUS[OVERRUNBIT] : (KDATA != KDATA_old) & KCTRL[READYBIT]; 
-            KCTRL[IEBIT]      <= (kctrl_write_ctrl == 1'b1) ? DBUS[IEBIT] : 1'b0;             // Default assignment to 0 is temporary
+            KDATA             <= ~KEY_IN;
+            KCTRL[READYBIT]   <= (KDATA != KDATA_old) || (KCTRL[READYBIT] == 1'b1);
+            
+            if ((kctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+                KCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((KDATA != KDATA_old) && (KCTRL[READYBIT] == 1'b1))
+                KCTRL[OVERRUNBIT] <= 1'b1;
+            else
+                KCTRL[OVERRUNBIT] <= KCTRL[OVERRUNBIT];
+                
+            if (kctrl_write_ctrl == 1'b1)
+                KCTRL[IEBIT] <= DBUS[IEBIT];
+            else
+                KCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
         end
     end
     
-    assign DBUS      = read_ctrl ? KDATA : {DBITS{1'bz}};
-    assign KCTRL_OUT = KCTRL;
+    assign DBUS = kdata_read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} :
+                  kctrl_read_ctrl ? {{(DBITS-KCTRLBITS){1'b0}}, KCTRL} :
+                  {DBITS{1'bz}};
 endmodule
 
 
-module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
+module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
     parameter DBITS      = 32;
     parameter SWBITS     = 10;
     parameter ADDRSWDATA = 32'hFFFFF090;
@@ -1098,6 +1117,10 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
     parameter READYBIT   = 0;  
     parameter OVERRUNBIT = 1;
     parameter IEBIT      = 2;           // Should it be 4??? Who knows???
+    
+    // Number of clock cycles (with 50 MHZ clock) in different time units
+    parameter ONE_MILLISECOND = 'd50000;
+    parameter TEN_MILLISECONDS = 'd500000;
     
     input  [DBITS-1:0]      ABUS;
     inout  [DBITS-1:0]      DBUS;
@@ -1110,32 +1133,150 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
                                         // IO device; whenever the processor needs
                                         // to read the value of the SW, it should
                                         // check the value from SW_DEV's DBUS
-    output [SWCTRLBITS-1:0] SWCTRL_OUT;
     
     reg  [SWBITS-1:0]     SWDATA_old;   // Holds most recent value of SWDATA   
                                         // to allow for detection of changes
     reg  [SWBITS-1:0]     SWDATA;
     reg  [SWCTRLBITS-1:0] SWCTRL;
     wire                  swctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRSWCTRL;
-    wire                  read_ctrl         = WE == 1'b0 && ABUS == ADDRSWCTRL;
+    wire                  swdata_read_ctrl  = WE == 1'b0 && ABUS == ADDRSWDATA;
+    wire                  swctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRSWCTRL;
+    
+    // Used for keeping track of when 
+    reg [DBITS-1:0]  clock_cycles;
+    reg [DBITS-1:0]  time_unit;
+    reg [SWBITS-1:0] SWDATA_temp;
+    reg [SWBITS-1:0] SWDATA_temp_old;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET) begin
-            SWDATA_old <= {SWBITS{1'b0}};
-            SWDATA     <= {SWBITS{1'b0}};
-            SWCTRL     <= {SWCTRLBITS{1'b0}};
+            SWDATA_old   <= {SWBITS{1'b0}};
+            SWDATA       <= {SWBITS{1'b0}};
+            SWCTRL       <= {SWCTRLBITS{1'b0}};
+            clock_cycles <= 0;
+            time_unit    <= TEN_MILLISECONDS;
         end else begin
-            SWDATA_old         <= SWDATA;
-            SWDATA             <= SW_IN;
-            SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) | SWCTRL[READYBIT];
-            SWCTRL[OVERRUNBIT] <= (swctrl_write_ctrl == 1'b1 && DBUS[OVERRUNBIT] == 1'b0)         // Not confident this is correct
-                                  ? DBUS[OVERRUNBIT] : (SWDATA != SWDATA_old) & SWCTRL[READYBIT]; 
-            SWCTRL[IEBIT]      <= (swctrl_write_ctrl == 1'b1) ? DBUS[IEBIT] : 1'b0;               // Default assignment to 0 is temporary
+            if (clock_cycles + 1 >= time_unit && SWDATA_temp == SWDATA_temp_old) begin
+                SWDATA_old         <= SWDATA;
+                SWDATA             <= SWDATA_temp;
+                SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
+                clock_cycles       <= 0;
+                SWDATA_temp        <= SW_IN;
+                SWDATA_temp_old    <= SW_IN;
+            end else if (SWDATA_temp == SWDATA_temp_old) begin
+                clock_cycles    <= clock_cycles + 1;
+                SWDATA_temp     <= SW_IN;
+                SWDATA_temp_old <= SWDATA_temp;
+            end else begin
+                clock_cycles    <= 0;
+                SWDATA_temp     <= SW_IN;
+                SWDATA_temp_old <= SW_IN;
+            end
+            
+            if ((swctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+                SWCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((SWDATA != SWDATA_old) && (SWCTRL[READYBIT] == 1'b1))
+                SWCTRL[OVERRUNBIT] <= 1'b1;
+            else
+                SWCTRL[OVERRUNBIT] <= SWCTRL[OVERRUNBIT];
+                
+            if (swctrl_write_ctrl == 1'b1)
+                SWCTRL[IEBIT] <= DBUS[IEBIT];
+            else
+                SWCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
         end
     end
     
-    assign DBUS      = read_ctrl ? SWDATA : {DBITS{1'bz}};
-    assign SWCTRL_OUT = SWCTRL;
+    assign DBUS = swdata_read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} :
+                  swctrl_read_ctrl ? {{(DBITS-SWCTRLBITS){1'b0}}, SWCTRL} :
+                  {DBITS{1'bz}};
+endmodule
+
+
+module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET);
+    parameter DBITS     = 32;
+    parameter TCNTBITS  = 32;
+    parameter TLIMBITS  = 32;
+    parameter TCTRLBITS = 3;
+    parameter ADDRTCNT  = 32'hFFFFF100;
+    parameter ADDRTLIM  = 32'hFFFFF104;
+    parameter ADDRTCTRL = 32'hFFFFF108;
+    
+    // These are for indexing into TCTRL
+    parameter READYBIT   = 0;  
+    parameter OVERRUNBIT = 1;
+    parameter IEBIT      = 2;           // Should it be 4??? Who knows???
+    
+    // Number of clock cycles (with 50 MHZ clock) in different time units
+    parameter ONE_MILLISECOND  = 'd50000;
+    
+    input  [DBITS-1:0]     ABUS;
+    inout  [DBITS-1:0]     DBUS;
+    input                  WE;
+    input                  CLK;
+    input                  RESET;
+    
+    reg  [TCNTBITS-1:0]  TCNT;
+    reg  [TLIMBITS-1:0]  TLIM;
+    reg  [TCTRLBITS-1:0] TCTRL;
+    wire                 tcnt_write_ctrl  = WE == 1'b1 && ABUS == ADDRTCNT;
+    wire                 tcnt_read_ctrl   = WE == 1'b0 && ABUS == ADDRTCNT;
+    wire                 tlim_write_ctrl  = WE == 1'b1 && ABUS == ADDRTLIM;
+    wire                 tlim_read_ctrl   = WE == 1'b0 && ABUS == ADDRTLIM;
+    wire                 tctrl_write_ctrl = WE == 1'b1 && ABUS == ADDRTCTRL;
+    wire                 tctrl_read_ctrl  = WE == 1'b0 && ABUS == ADDRTCTRL;
+    
+    // Used to keep track of when to increment TCNT
+    reg [DBITS-1:0] clock_cycles;
+    reg [DBITS-1:0] time_unit;
+    
+    always @ (posedge CLK or posedge RESET) begin
+        if (RESET) begin
+            TCNT         <= {TCNTBITS{1'b0}};
+            TLIM         <= {TLIMBITS{1'b0}};
+            TCTRL        <= {TCTRLBITS{1'b0}};
+            clock_cycles <= {DBITS-1{1'b0}};
+            time_unit    <= ONE_MILLISECOND;
+        end else begin
+            if (tcnt_write_ctrl) begin
+                TCNT         <= DBUS;
+                clock_cycles <= 0;
+            end else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1))) begin
+                TCNT         <= 0;
+                clock_cycles <= 0;
+            end else if (clock_cycles >= (time_unit - 1)) begin
+                TCNT            <= TCNT + 1;
+                clock_cycles    <= 0;
+            end else
+                clock_cycles <= clock_cycles + 1;
+                
+            TLIM <= tlim_write_ctrl ? DBUS : TLIM;
+            
+            if ((tctrl_write_ctrl == 1'b1) && (DBUS[READYBIT] == 1'b0))
+                TCTRL[READYBIT] <= 1'b0;
+            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)))
+                TCTRL[READYBIT] <= 1'b1;
+            else
+                TCTRL[READYBIT] <= TCTRL[READYBIT];
+                
+            if ((tctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+                TCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) && (TCTRL[READYBIT] == 1'b1))
+                TCTRL[OVERRUNBIT] <= 1'b1;
+            else
+                TCTRL[OVERRUNBIT] <= TCTRL[OVERRUNBIT];
+                
+            if (tctrl_write_ctrl == 1'b1)
+                TCTRL[IEBIT] <= DBUS[IEBIT];
+            else
+                TCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
+        end
+    end
+    
+    assign DBUS      = tcnt_read_ctrl ? {{(DBITS-TCNTBITS){1'b0}}, TCNT} :
+                       tlim_read_ctrl ? {{(DBITS-TLIMBITS){1'b0}}, TLIM} :
+                       tctrl_read_ctrl ? {{(DBITS-TCTRLBITS){1'b0}}, TCTRL} :
+                       {DBITS{1'bz}};
 endmodule
 
 
