@@ -197,6 +197,7 @@ module Project(
     //** KEY **//
 
     tri  [DBITS-1:0]     key_dbus;   // The current value of KDATA (=KEY)
+    wire [KCTRLBITS-1:0] kctrl_reg;
     wire                 key_we;
     
     // Only check for KCTRL because KDATA cannot be written to
@@ -207,11 +208,12 @@ module Project(
     // to drive it's input value to the data bus
     assign key_dbus = key_we ? regval2_EX : {DBITS{1'bz}};
 
-    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY));
+    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg));
     
     //** SW **//
     
     tri  [DBITS-1:0]      sw_dbus;
+    wire [SWCTRLBITS-1:0] swctrl_reg;
     wire                  sw_we;
     
     // Only check for SWCTRL because SWDATA cannot be written to
@@ -222,12 +224,13 @@ module Project(
     // to drive it's input value to the data bus
     assign sw_dbus = sw_we ? regval2_EX : {DBITS{1'bz}};
 
-    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW));  
+    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg));  
     
     //** TIMER **//
     
-    tri  [DBITS-1:0] timer_dbus;
-    wire             timer_we;   // 1 if writing to TCNT, TLIM, *or* TCTRL
+    tri  [DBITS-1:0]     timer_dbus;
+    wire [TCTRLBITS-1:0] tctrl_reg;
+    wire                 timer_we;   // 1 if writing to TCNT, TLIM, *or* TCTRL
     
     assign timer_we = mem_we_MEM_w && ((mem_addr_MEM_w == ADDRTCNT)
                       || (mem_addr_MEM_w == ADDRTLIM) || (mem_addr_MEM_w == ADDRTCTRL));
@@ -237,7 +240,7 @@ module Project(
     // to drive it's input value to the data bus
     assign timer_dbus = timer_we ? regval2_EX : {DBITS{1'bz}};
     
-    TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset));
+    TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset), .TCTRL_OUT(tctrl_reg));
     
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -1044,7 +1047,7 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
 endmodule
 
 
-module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN);
+module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
     parameter DBITS     = 32;
     parameter KEYBITS   = 4;
     parameter ADDRKDATA = 32'hFFFFF080;
@@ -1067,6 +1070,7 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN);
                                       // IO device; whenever the processor needs
                                       // to read the value of the KEY, it should
                                       // check the value from KEY_DEV's DBUS
+    output [KCTRLBITS-1:0] KCTRL_OUT;
     
     reg  [KEYBITS-1:0]   KDATA_old;   // Holds most recent value of KDATA   
                                       // to allow for detection of changes
@@ -1100,13 +1104,14 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN);
         end
     end
     
-    assign DBUS = kdata_read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} :
-                  kctrl_read_ctrl ? {{(DBITS-KCTRLBITS){1'b0}}, KCTRL} :
-                  {DBITS{1'bz}};
+    assign DBUS      = kdata_read_ctrl ? {{(DBITS-KEYBITS){1'b0}}, KDATA} :
+                       kctrl_read_ctrl ? {{(DBITS-KCTRLBITS){1'b0}}, KCTRL} :
+                       {DBITS{1'bz}};
+    assign KCTRL_OUT = KCTRL;
 endmodule
 
 
-module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
+module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
     parameter DBITS      = 32;
     parameter SWBITS     = 10;
     parameter ADDRSWDATA = 32'hFFFFF090;
@@ -1133,6 +1138,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
                                         // IO device; whenever the processor needs
                                         // to read the value of the SW, it should
                                         // check the value from SW_DEV's DBUS
+    output [SWCTRLBITS-1:0] SWCTRL_OUT;
     
     reg  [SWBITS-1:0]     SWDATA_old;   // Holds most recent value of SWDATA   
                                         // to allow for detection of changes
@@ -1187,13 +1193,14 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN);
         end
     end
     
-    assign DBUS = swdata_read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} :
-                  swctrl_read_ctrl ? {{(DBITS-SWCTRLBITS){1'b0}}, SWCTRL} :
-                  {DBITS{1'bz}};
+    assign DBUS       = swdata_read_ctrl ? {{(DBITS-SWBITS){1'b0}}, SWDATA} :
+                        swctrl_read_ctrl ? {{(DBITS-SWCTRLBITS){1'b0}}, SWCTRL} :
+                        {DBITS{1'bz}};
+    assign SWCTRL_OUT = SWCTRL;
 endmodule
 
 
-module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET);
+module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
     parameter DBITS     = 32;
     parameter TCNTBITS  = 32;
     parameter TLIMBITS  = 32;
@@ -1215,6 +1222,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET);
     input                  WE;
     input                  CLK;
     input                  RESET;
+    output [TCTRLBITS-1:0] TCTRL_OUT;
     
     reg  [TCNTBITS-1:0]  TCNT;
     reg  [TLIMBITS-1:0]  TLIM;
@@ -1277,6 +1285,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET);
                        tlim_read_ctrl ? {{(DBITS-TLIMBITS){1'b0}}, TLIM} :
                        tctrl_read_ctrl ? {{(DBITS-TCTRLBITS){1'b0}}, TCTRL} :
                        {DBITS{1'bz}};
+    assign TCTRL_OUT = TCTRL;
 endmodule
 
 
