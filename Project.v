@@ -189,7 +189,7 @@ module Project(
     
     //Device number priority encoding
     wire [3:0] device_num =
-        //t_IRQ ? 4'b0001 :
+        t_IRQ ? 4'b0001 :
         key_IRQ ? 4'b0010 :
         sw_IRQ ? 4'b0011 :
         4'b1111;
@@ -753,16 +753,14 @@ module Project(
     assign ctrlsig_EX_w = {rd_mem_ID_w, wr_mem_ID_w, wr_reg_ID_w};
 
     // Specify signals such as mispred_EX_w, pcgood_EX_w
-    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL);
-    //assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL) || ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI));
+    //assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL);
+    assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL) || ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI));
 
     assign pcgood_EX_w = (op1_ID == OP1_JAL) ? (regval1_ID + (sxt_imm_ID << 2)) :
                        (br_cond_EX) ? (PC_ID + (sxt_imm_ID << 2)):
-                       //((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
+                       ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
                        PC_FE + INSTSIZE; //this case should not matter
-                       
-    //PCS[0] <= ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? PCS[1] : PCS[0];
-                       
+                                              
     // EX_latch
     always @ (posedge clk or posedge reset) begin
         if(reset) begin
@@ -779,7 +777,7 @@ module Project(
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
-        end else if (mispred_EX_w && op1_ID != OP1_JAL) begin
+        end else if (br_cond_EX) begin
             //do not latch
             //flush
             PC_EX <= {DBITS{1'b0}}; //PC
