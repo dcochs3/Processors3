@@ -31,7 +31,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
     //parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "dependency_test.mif";
+    parameter IMEMINITFILE = "Test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -1093,7 +1093,7 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
         if (RESET) begin
             KDATA_old <= {KEYBITS{1'b0}};
             KDATA     <= {KEYBITS{1'b0}};
-            KCTRL     <= {KCTRLBITS{1'b0}};
+            KCTRL     <= 3'b100;
         end else begin
             KDATA_old         <= KDATA;
             KDATA             <= ~KEY_IN;
@@ -1109,7 +1109,7 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
             if (kctrl_write_ctrl == 1'b1)
                 KCTRL[IEBIT] <= DBUS[IEBIT];
             else
-                KCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
+                KCTRL[IEBIT] <= KCTRL[IEBIT];
         end
     end
     
@@ -1167,7 +1167,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
         if (RESET) begin
             SWDATA_old   <= {SWBITS{1'b0}};
             SWDATA       <= {SWBITS{1'b0}};
-            SWCTRL       <= {SWCTRLBITS{1'b0}};
+            SWCTRL       <= 3'b100;          // IE bit should be 1 by default
             clock_cycles <= 0;
             time_unit    <= TEN_MILLISECONDS;
         end else begin
@@ -1198,7 +1198,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
             if (swctrl_write_ctrl == 1'b1)
                 SWCTRL[IEBIT] <= DBUS[IEBIT];
             else
-                SWCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
+                SWCTRL[IEBIT] <= SWCTRL[IEBIT];
         end
     end
     
@@ -1251,7 +1251,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
         if (RESET) begin
             TCNT         <= {TCNTBITS{1'b0}};
             TLIM         <= {TLIMBITS{1'b0}};
-            TCTRL        <= {TCTRLBITS{1'b0}};
+            TCTRL        <= 3'b100;            // IE bit should be 1 by default
             clock_cycles <= {DBITS-1{1'b0}};
             time_unit    <= ONE_MILLISECOND;
         end else begin
@@ -1286,7 +1286,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
             if (tctrl_write_ctrl == 1'b1)
                 TCTRL[IEBIT] <= DBUS[IEBIT];
             else
-                TCTRL[IEBIT] <= 1'b0;  // Default assignment to 0 is temporary
+                TCTRL[IEBIT] <= TCTRL[IEBIT];
         end
     end
     
