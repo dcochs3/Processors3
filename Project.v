@@ -30,8 +30,8 @@ module Project(
     parameter ADDRTCTRL  = 32'hFFFFF108;
 
     // Change this to fmedian2.mif before submitting
-    parameter IMEMINITFILE = "fmedian2.mif";
-    //parameter IMEMINITFILE = "new_instr_compat_test.mif";
+    //parameter IMEMINITFILE = "fmedian2.mif";
+    parameter IMEMINITFILE = "dependency_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -302,10 +302,10 @@ module Project(
 
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
-    initial begin
-        $readmemh("fmedian2.hex", imem);
-        $readmemh("fmedian2.hex", dmem);
-    end
+//    initial begin
+//        $readmemh("fmedian2.hex", imem);
+//        $readmemh("fmedian2.hex", dmem);
+//    end
 
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
 
@@ -452,6 +452,8 @@ module Project(
     reg [DBITS-1:0] sxt_imm_ID;
     reg [REGNOBITS-1:0] rt_spec_ID;
     reg [REGNOBITS-1:0] rd_spec_ID; //RdSpec
+    reg [REGNOBITS-1:0] rs_spec_ID; //RsSpec
+
     //Control signals
     reg [1:0] alu_src_ID; //ALUSrc (2 bits)
     reg [1:0] new_pc_src_ID; //NewPCSrc (2 bits)
@@ -603,6 +605,7 @@ module Project(
             sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
+            rs_spec_ID        <= {REGNOBITS{1'b0}}; //RsSpec
             alu_src_ID        <= 2'b00; //ALUSrc
             new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
@@ -626,6 +629,7 @@ module Project(
             sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
+            rs_spec_ID        <= {REGNOBITS{1'b0}}; //RsSpec
             alu_src_ID        <= 2'b00; //ALUSrc
             new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
@@ -650,6 +654,7 @@ module Project(
             sxt_imm_ID <= {DBITS{1'b0}}; //sxtImm
 
             rd_spec_ID        <= {REGNOBITS{1'b0}}; //RdSpec
+            rs_spec_ID        <= {REGNOBITS{1'b0}}; //RsSpec
             alu_src_ID        <= 2'b00; //ALUSrc
             new_pc_src_ID     <= 2'b00; //NewPCSrc
             mem_we_ID         <= 1'b0; //MemWE
@@ -675,6 +680,7 @@ module Project(
         
             dst_reg_ID        <= dst_reg_ID_w;
             rd_spec_ID        <= rd_ID_w; //RdSpec
+            rs_spec_ID        <= rs_ID_w; //RsSpec
             alu_src_ID        <= alu_src_ID_w; //ALUSrc
             new_pc_src_ID     <= new_pc_src_ID_w; //NewPCSrc
             mem_we_ID         <= mem_we_ID_w; //MemWE
@@ -707,6 +713,8 @@ module Project(
     reg [0:0] mem_re_EX;
     reg [0:0] reg_we_EX;
     reg [1:0] reg_wr_src_sel_EX;
+    reg [REGNOBITS-1:0] rs_spec_EX; //RsSpec
+
     
     assign op1_EX_w = op1_ID;
     assign op2_EX_w = op2_ID;
@@ -777,6 +785,7 @@ module Project(
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
+            rs_spec_EX <= {REGNOBITS{1'b0}}; //RsSpec
         end else if (br_cond_EX) begin
             //do not latch
             //flush
@@ -793,6 +802,7 @@ module Project(
             ctrlsig_EX <= 3'b000;
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b1;
+            rs_spec_EX <= {REGNOBITS{1'b0}}; //RsSpec
         end else begin
             // Specify EX latches
             PC_EX <= PC_ID; //PC
@@ -808,6 +818,7 @@ module Project(
             ctrlsig_EX <= ctrlsig_EX_w;
             inst_EX <= inst_ID;
             is_nop_EX <= is_nop_ID;
+            rs_spec_EX <= rs_spec_ID; //RsSpec
         end
     end
 
@@ -852,17 +863,17 @@ module Project(
     assign wr_reg_MEM_w = ctrlsig_EX[0];
 
     // Read from D-MEM
-    assign mem_val_out_MEM_w = (mem_addr_MEM_w == ADDRLEDR) ? ledr_dbus :
+    assign mem_val_out_MEM_w = //reading from system registers
+                               (isRSR && (rs_spec_EX == PCS_reg_ID)) ? PCS :
+                               (isRSR && (rs_spec_EX == IHA_reg_ID)) ? IHA :
+                               (isRSR && (rs_spec_EX == IRA_reg_ID)) ? IRA :
+                               (isRSR && (rs_spec_EX == IDN_reg_ID)) ? IDN :
+                               (mem_addr_MEM_w == ADDRLEDR) ? ledr_dbus :
                                (mem_addr_MEM_w == ADDRHEX) ? hex_dbus :
                                ((mem_addr_MEM_w == ADDRKEY) || (mem_addr_MEM_w == ADDRKCTRL)) ? key_dbus :
                                ((mem_addr_MEM_w == ADDRSW) || (mem_addr_MEM_w == ADDRSWCTRL)) ? sw_dbus :
                                ((mem_addr_MEM_w == ADDRTCNT) || (mem_addr_MEM_w == ADDRTLIM)
                                   || (mem_addr_MEM_w == ADDRTCTRL)) ? timer_dbus :
-                               //reading from system registers
-                               (isRSR && (mem_addr_MEM_w == PCS_reg_ID)) ? PCS :
-                               (isRSR && (mem_addr_MEM_w == IHA_reg_ID)) ? IHA :
-                               (isRSR && (mem_addr_MEM_w == IRA_reg_ID)) ? IRA :
-                               (isRSR && (mem_addr_MEM_w == IDN_reg_ID)) ? IDN :
                                dmem[mem_addr_MEM_w[DMEMADDRBITS-1:DMEMWORDBITS]];
 
     // Write to D-MEM
