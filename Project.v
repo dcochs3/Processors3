@@ -171,28 +171,6 @@ module Project(
     assign HEX = hex_out;
   
     HEX_DEV my_hex (.ABUS(io_abus), .DBUS(hex_dbus), .WE(hex_we), .CLK(clk), .RESET(reset), .HEX_OUT(hex_out));
-    
-    //I don't know where to put this, so I just put it here for now
-    //We will have a processor interrupt request signal
-    wire key_IRQ;
-    wire sw_IRQ;
-    wire t_IRQ;
-    wire proc_IRQ;
-    
-    assign key_IRQ = kctrl_reg[IEBIT] && kctrl_reg[READYBIT];
-    assign sw_IRQ = swctrl_reg[IEBIT] && swctrl_reg[READYBIT];
-    assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
-    
-    //This is set by ORing the individual devices' interrupt request signals
-    //And it is only set if interrupts are enabled (PCS[0] == 1)
-    assign proc_IRQ = PCS[0] && (key_IRQ || sw_IRQ || t_IRQ);
-    
-    //Device number priority encoding
-    wire [3:0] device_num =
-        t_IRQ ? 4'b0001 :
-        key_IRQ ? 4'b0010 :
-        sw_IRQ ? 4'b0011 :
-        4'b1111;
 
     //** KEY **//
 
@@ -242,6 +220,31 @@ module Project(
     
     TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset), .TCTRL_OUT(tctrl_reg));
     
+    //*** Interrupt Related Things ***//
+    wire key_IRQ;
+    wire sw_IRQ;
+    wire t_IRQ;
+    wire proc_IRQ;
+    
+    wire pipeline_not_empty = !is_nop_FE && !is_nop_ID && !is_nop_EX && !is_nop_MEM;
+    
+    wire pipeline_empty = is_nop_FE && is_nop_ID && is_nop_EX && is_nop_MEM;
+    
+    assign key_IRQ = kctrl_reg[IEBIT] && kctrl_reg[READYBIT];
+    assign sw_IRQ = swctrl_reg[IEBIT] && swctrl_reg[READYBIT];
+    assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
+    
+    //This is set by ORing the individual devices' interrupt request signals
+    //And it is only set if interrupts are enabled (PCS[0] == 1)
+    assign proc_IRQ = PCS[0] && (key_IRQ || sw_IRQ || t_IRQ);
+    
+    //Device number priority encoding
+    wire [3:0] device_num =
+        t_IRQ ? 4'b0001 :
+        key_IRQ ? 4'b0010 :
+        sw_IRQ ? 4'b0011 :
+        4'b1111;
+  
     //*** FETCH STAGE ***//
     // The PC register and update logic
     wire [DBITS-1:0] pcplus_FE;
@@ -306,7 +309,7 @@ module Project(
 //        $readmemh("fmedian2.hex", imem);
 //        $readmemh("fmedian2.hex", dmem);
 //    end
-
+  
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
 
     always @ (posedge clk or posedge reset) begin
@@ -314,12 +317,18 @@ module Project(
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
         end
+        else if (proc_IRQ && pipeline_not_empty && mispred_EX_w) begin
+            PC_REG <= pcgood_EX_w;
+            PC_FE <= pcgood_EX_w;
+        end
+        else if (proc_IRQ && pipeline_not_empty) begin
+            PC_REG <= PC_REG;
+            PC_FE <= PC_FE;
+        end
         else if (proc_IRQ) begin          
             //Jump to the interrupt handler (set the PC value to be the address in IHA)
             PC_REG <= IHA;
             PC_FE <= IHA;
-            
-            //TODO: we have to flush something...?
         end
         else if(mispred_EX_w) begin
             //use branch or jal target address
@@ -346,20 +355,14 @@ module Project(
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b0;
         end
-        else if (proc_IRQ) begin
-            //TODO: what is this behavior?
-            //This should be the first instruction of the interrupt handler
-            //Do we need to handle this case separately?
-            inst_FE <= inst_FE_w;
-            is_nop_FE <= 1'b0;
-        end
-        else if (mispred_EX_w) begin
+        else if (proc_IRQ || mispred_EX_w) begin
             inst_FE <= {INSTBITS{1'b0}};
             is_nop_FE <= 1'b1;
         end
-        else if (stall_lw_EX)
+        else if (stall_lw_EX) begin
             inst_FE <= inst_FE;
-        else begin
+            is_nop_FE <= 1'b1;
+        end else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
         end
@@ -621,7 +624,7 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b0;
-        end else if (stall_lw_EX) begin
+        end else if (is_nop_FE || stall_lw_EX || (proc_IRQ && pipeline_not_empty)) begin
             PC_ID      <= {DBITS{1'b0}};
             rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
             regval2_ID <= {DBITS{1'b0}}; //RtCont
@@ -786,7 +789,7 @@ module Project(
             inst_EX <= {INSTBITS{1'b0}};
             is_nop_EX <= 1'b0;
             rs_spec_EX <= {REGNOBITS{1'b0}}; //RsSpec
-        end else if (br_cond_EX) begin
+        end else if (is_nop_ID || br_cond_EX) begin
             //do not latch
             //flush
             PC_EX <= {DBITS{1'b0}}; //PC
@@ -885,7 +888,7 @@ module Project(
 
     //System register and interrupt handling
     always @ (posedge clk) begin
-        if (proc_IRQ) begin
+        if (proc_IRQ && pipeline_empty) begin
             //Things we need TODO if we detect an interrupt:
             //Save the next instruction address in IRA
             IRA <= pcplus_FE;
@@ -1159,7 +1162,6 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
     
     // Used for keeping track of when 
     reg [DBITS-1:0]  clock_cycles;
-    reg [DBITS-1:0]  time_unit;
     reg [SWBITS-1:0] SWDATA_temp;
     reg [SWBITS-1:0] SWDATA_temp_old;
     
@@ -1169,9 +1171,8 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
             SWDATA       <= {SWBITS{1'b0}};
             SWCTRL       <= 3'b100;          // IE bit should be 1 by default
             clock_cycles <= 0;
-            time_unit    <= TEN_MILLISECONDS;
         end else begin
-            if (clock_cycles + 1 >= time_unit && SWDATA_temp == SWDATA_temp_old) begin
+            if (clock_cycles + 1 >= TEN_MILLISECONDS && SWDATA_temp == SWDATA_temp_old) begin
                 SWDATA_old         <= SWDATA;
                 SWDATA             <= SWDATA_temp;
                 SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
@@ -1245,7 +1246,6 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
     
     // Used to keep track of when to increment TCNT
     reg [DBITS-1:0] clock_cycles;
-    reg [DBITS-1:0] time_unit;
     
     always @ (posedge CLK or posedge RESET) begin
         if (RESET) begin
@@ -1253,15 +1253,14 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
             TLIM         <= {TLIMBITS{1'b0}};
             TCTRL        <= 3'b100;            // IE bit should be 1 by default
             clock_cycles <= {DBITS-1{1'b0}};
-            time_unit    <= ONE_MILLISECOND;
         end else begin
             if (tcnt_write_ctrl) begin
                 TCNT         <= DBUS;
                 clock_cycles <= 0;
-            end else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1))) begin
+            end else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1))) begin
                 TCNT         <= 0;
                 clock_cycles <= 0;
-            end else if (clock_cycles >= (time_unit - 1)) begin
+            end else if (clock_cycles >= (ONE_MILLISECOND - 1)) begin
                 TCNT            <= TCNT + 1;
                 clock_cycles    <= 0;
             end else
@@ -1271,14 +1270,14 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
             
             if ((tctrl_write_ctrl == 1'b1) && (DBUS[READYBIT] == 1'b0))
                 TCTRL[READYBIT] <= 1'b0;
-            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)))
+            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1)))
                 TCTRL[READYBIT] <= 1'b1;
             else
                 TCTRL[READYBIT] <= TCTRL[READYBIT];
                 
             if ((tctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
                 TCTRL[OVERRUNBIT] <= 1'b0;
-            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (time_unit - 1)) && (TCTRL[READYBIT] == 1'b1))
+            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1)) && (TCTRL[READYBIT] == 1'b1))
                 TCTRL[OVERRUNBIT] <= 1'b1;
             else
                 TCTRL[OVERRUNBIT] <= TCTRL[OVERRUNBIT];
