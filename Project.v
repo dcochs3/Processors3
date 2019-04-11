@@ -31,7 +31,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
     //parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "int_mechanism_test.mif";
+    parameter IMEMINITFILE = "jump_to_int_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -630,7 +630,7 @@ module Project(
             ctrlsig_ID <= 5'b00000;
             inst_ID    <= {INSTBITS{1'b0}};
             is_nop_ID  <= 1'b0;
-        end else if (is_nop_FE || stall_lw_EX || (proc_IRQ && pipeline_not_empty)) begin
+        end else if (is_nop_FE || stall_lw_EX) begin
             PC_ID      <= {DBITS{1'b0}};
             rt_spec_ID <= {REGNOBITS{1'b0}}; //RtSpec
             regval2_ID <= {DBITS{1'b0}}; //RtCont
@@ -774,9 +774,9 @@ module Project(
     assign mispred_EX_w = br_cond_EX || (op1_ID == OP1_JAL) || ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI));
 
     assign pcgood_EX_w = (op1_ID == OP1_JAL) ? (regval1_ID + (sxt_imm_ID << 2)) :
-                       (br_cond_EX) ? (PC_ID + (sxt_imm_ID << 2)):
-                       ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
-                       PC_FE + INSTSIZE; //this case should not matter
+                         ((op1_ID == OP1_SYS) && (op2_ID == OP2_RETI)) ? IRA :
+                         (br_cond_EX) ? (PC_ID + (sxt_imm_ID << 2)) :
+                         PC_FE + INSTSIZE; //this case should not matter
                                               
     // EX_latch
     always @ (posedge clk or posedge reset) begin
@@ -903,7 +903,7 @@ module Project(
         else if (proc_IRQ && pipeline_empty) begin
             //Things we need TODO if we detect an interrupt:
             //Save the next instruction address in IRA
-            IRA <= pcplus_FE;
+            IRA <= PC_REG;
             
             //Determine which device raised the interrupt and save that device's ID in IDN
             IDN <= device_num;
