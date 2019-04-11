@@ -31,7 +31,7 @@ module Project(
 
     // Change this to fmedian2.mif before submitting
     //parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "Test.mif";
+    parameter IMEMINITFILE = "int_mechanism_test.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -114,6 +114,27 @@ module Project(
     wire [DBITS-1:0] mem_addr_MEM_w;
     wire             mem_we_MEM_w;
     reg  [DBITS-1:0] regval2_EX;
+    
+    reg is_nop_FE;
+    reg is_nop_ID;
+    reg is_nop_EX;
+    reg is_nop_MEM;
+    
+    wire forward_rs_from_EX;
+    wire forward_rs_from_MEM;
+    
+    wire forward_rs_from_EX_sys;
+    wire forward_rs_from_MEM_sys;
+    
+    //For interrupt handling
+    reg [1:0] PCS;       //processor control status -- bit 0 is IE, bit 1 is OIE
+    reg [DBITS-1:0] IHA; //interrupt handler address
+    reg [DBITS-1:0] IRA; //interrupt return address
+    reg [2:0] IDN;       //interrupt device number -- this is 3 bits wide because there are 3 devices (key, switch, timer) that generate interrupts
+  
+    wire rdsysreg_ID_w;
+    wire wrsysreg_EX_w;
+    wire wrsysreg_MEM_w;
   
     //*** IO DEVICES AND CONNECTIONS ***//
     
@@ -226,7 +247,7 @@ module Project(
     wire t_IRQ;
     wire proc_IRQ;
     
-    wire pipeline_not_empty = !is_nop_FE && !is_nop_ID && !is_nop_EX && !is_nop_MEM;
+    wire pipeline_not_empty = !is_nop_FE || !is_nop_ID || !is_nop_EX || !is_nop_MEM;
     
     wire pipeline_empty = is_nop_FE && is_nop_ID && is_nop_EX && is_nop_MEM;
     
@@ -257,8 +278,6 @@ module Project(
     reg [INSTBITS-1:0] inst_FE;
    
     wire data_dep_rs;
-    wire forward_rs_from_EX;
-    wire forward_rs_from_MEM;
     wire data_dep_rt_check;
     wire data_dep_rt;
     wire forward_rt_from_EX;
@@ -282,17 +301,8 @@ module Project(
     reg [DBITS-1:0] PC_REG;
     wire is_br_ID_w;
     wire is_jmp_ID_w;
-    reg is_nop_FE;
-    reg is_nop_ID;
-    reg is_nop_EX;
-    reg is_nop_MEM;
     reg mispred_EX;
     
-    //For interrupt handling
-    reg [1:0] PCS;       //processor control status -- bit 0 is IE, bit 1 is OIE
-    reg [DBITS-1:0] IHA; //interrupt handler address
-    reg [DBITS-1:0] IRA; //interrupt return address
-    reg [2:0] IDN;       //interrupt device number -- this is 3 bits wide because there are 3 devices (key, switch, timer) that generate interrupts
     
     parameter PCS_reg_ID = 4'b0000;
     parameter IHA_reg_ID = 4'b0001;
@@ -306,8 +316,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
 //    initial begin
-//        $readmemh("fmedian2.hex", imem);
-//        $readmemh("fmedian2.hex", dmem);
+//        $readmemh("int_mechanism_test.hex", imem);
+//        $readmemh("int_mechanism_test.hex", dmem);
 //    end
   
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -317,7 +327,7 @@ module Project(
             PC_REG <= STARTPC;
             PC_FE <= {DBITS{1'b0}};
         end
-        else if (proc_IRQ && pipeline_not_empty && mispred_EX_w) begin
+        else if (proc_IRQ && mispred_EX_w) begin
             PC_REG <= pcgood_EX_w;
             PC_FE <= pcgood_EX_w;
         end
@@ -421,8 +431,8 @@ module Project(
     //FORWARDING    
     assign regval1_ID_w = (forward_lw_to_rs_from_MEM) ? mem_val_out_MEM_w :
                           (forward_rs_from_EX_sys) ? aluout_EX_r :
-                          (forward_rs_from_MEM_sys) ? aluout_EX :
                           (forward_rs_from_EX) ? aluout_EX_r :
+                          (forward_rs_from_MEM_sys) ? aluout_EX :
                           (forward_rs_from_MEM) ? aluout_EX : 
                           (rdsysreg_ID_w && (rs_ID_w == PCS_reg_ID)) ? PCS :                 
                           (rdsysreg_ID_w && (rs_ID_w == IHA_reg_ID)) ? IHA :
@@ -529,10 +539,6 @@ module Project(
     //DATA FORWARDING
     //if the instruction currently in ID stage reads from the destination register of the instruction currently in execute
     //we need to forward (use "aluout_EX_r" as your read register value)
-    
-    wire rdsysreg_ID_w;
-    wire wrsysreg_EX_w;
-    wire wrsysreg_MEM_w;
     
     //1 if the instruction in the ID stage is RSR, we are reading from a system register
     assign rdsysreg_ID_w = (op1_ID_w == OP1_SYS) && (op2_ID_w == OP2_RSR);
@@ -887,8 +893,14 @@ module Project(
     end
 
     //System register and interrupt handling
-    always @ (posedge clk) begin
-        if (proc_IRQ && pipeline_empty) begin
+    always @ (posedge clk or posedge reset) begin
+        if (reset) begin
+            PCS <= 2'b0;
+            IHA <= {DBITS{1'b0}};
+            IRA <= {DBITS{1'b0}};
+            IDN <= 3'b0;
+        end
+        else if (proc_IRQ && pipeline_empty) begin
             //Things we need TODO if we detect an interrupt:
             //Save the next instruction address in IRA
             IRA <= pcplus_FE;
