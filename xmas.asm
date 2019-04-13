@@ -35,8 +35,37 @@
 
 ; Device ID numbers
 .NAME   TimerIDN  = 1
-.NAME   HexIDN    = 2
+.NAME   KeyIDN    = 2
 .NAME   SwitchIDN = 3
+
+; Key constants
+.NAME   Key0 = 1
+.NAME   Key1 = 2
+
+
+; -----------------------------------------------------------------
+; Initialization and Main Loop
+
+    .ORG 0x100
+
+    XOR   zero, zero, zero  ; zero out zero register
+
+    SW    zero, CurrStateVal(zero)  ; initialize state machine variables
+    SW    zero, CurrCycleVal(zero)
+
+    ADDI  zero, a0, 0x300    ; put 0x300 in IHA      
+    WSR   IHA, a0
+
+    ADDI  zero, a0, HalfSecond  ; put 1/2 second in TLIM
+    SW    a0, TLIM(zero)
+
+    SW    zero, TCNT(zero)  ; reset TCNT
+
+    ADDI  zero, a0, 0x01    ; put 0x01 in PCS (set IE bit)
+    WSR   PCS, a0
+
+InfiniteLoop:
+    BR InfiniteLoop  ; loop here forever waiting for interrupts
 
 
 ; -----------------------------------------------------------------
@@ -44,13 +73,17 @@
 ; to determine who caused the interrupt and then jump to the
 ; appropriate handler code
 
-    .ORG 0x10
+    .ORG 0x300
 
     RSR   t0, IDN    ; read the device ID of the device that
                      ; caused the interrupt
 
     ADDI  zero, t1, TimerIDN       ; check to see if it's the timer
-    BEQ   t0, t1, TimerIntHandler  ; and return if not
+    BEQ   t0, t1, TimerIntHandler
+
+    ADDI  zero, t1, KeyIDN         ; check to see if it's the keys
+    BEQ   t0, t1, KeyIntHandler
+
     RETI
 
 
@@ -139,27 +172,45 @@ BlinkAltOn:
 
 
 ; -----------------------------------------------------------------
-; Initialization and Main Loop
-    .ORG 0x100
+; Key Interrupt Handler
 
-    XOR   zero, zero, zero  ; zero out zero register
+KeyIntHandler:
+    LW    t0, KEY(zero)      ; load the current key input into t0
 
-    SW    zero, CurrStateVal(zero)  ; initialize state machine variables
-    SW    zero, CurrCycleVal(zero)
+    ADDI  zero, t1, Key0     ; see if it's key 0
+    BEQ   t0, t1, Key0Press
 
-    ADDI  zero, a0, 0x10    ; put 0x10 in IHA      
-    WSR   IHA, a0
+    ADDI  zero, t1, Key1
+    BEQ   t0, t1, Key1Press
 
-    ADDI  zero, a0, HalfSecond  ; put 1/2 second in TLIM
-    SW    a0, TLIM(zero)
+    RETI                     ; if it was neither key 0 or key 1,
+                             ; just ignore this interrupt and
+                             ; RETI
 
-    SW    zero, TCNT(zero)  ; reset TCNT
+Key0Press:
+    LW    t0, TLIM(zero)                ; load current TLIM value and make
+    ADDI  zero, t1, TwoSeconds          ; sure that it isn't already the
+    BLE   t0, t1, Key0PressChangeSpeed  ; maximum value (2 seconds)
+    RETI                                ; just RETI if maximum value 
 
-    ADDI  zero, a0, 0x01    ; put 0x01 in PCS (set IE bit)
-    WSR   PCS, a0
+Key0PressChangeSpeed:
+    ADDI  t0, t0, QuarterSecond
+    SW    t0, TLIM(zero)
+    RETI
 
-InfiniteLoop:
-    BR InfiniteLoop  ; loop here forever waiting for interrupts
+
+Key1Press:
+    LW    t0, TLIM(zero)                ; load current TLIM value and make
+    ADDI  zero, t1, QuarterSecond       ; sure that it isn't already the
+    BGT   t0, t1, Key1PressChangeSpeed  ; minimum value (1/4 second)
+    RETI                                ; just RETI if minimum value 
+
+Key1PressChangeSpeed:
+    SUBI  t0, t0, 250                   ; just used 250 because
+                                        ; using QuarterSecond
+                                        ; made assembler not work
+    SW    t0, TLIM(zero)
+    RETI
 
 
 ; -----------------------------------------------------------------
