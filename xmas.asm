@@ -11,7 +11,12 @@
 
 ; Memory addresses to use for variables
 .NAME   CurrState     = 0xFFFFE000
-.NAME   CurrCycle     = 0xFFFFE020
+.NAME   CurrCycle     = 0xFFFFE010
+.NAME   HexShiftAmt   = 0xFFFFE020    ; This is used so that when there is key
+                                      ; press and the blink speed changes, the
+                                      ; key interrupt handler knows which
+                                      ; portion of the hex display to use for
+                                      ; the new speed
 
 ; Blink speed constants (in milliseconds)
 .NAME   QuarterSecond            = 250
@@ -59,6 +64,9 @@
     ADDI  zero, a0, HalfSecond  ; put 1/2 second in TLIM
     SW    a0, TLIM(zero)
 
+    ADDI  zero, a0, 0x000002    ; also display 2 on HEX0
+    SW    a0, HEX(zero)
+
     SW    zero, TCNT(zero)  ; reset TCNT
 
     ADDI  zero, a0, 0x01    ; put 0x01 in PCS (set IE bit)
@@ -83,6 +91,9 @@ InfiniteLoop:
 
     ADDI  zero, t1, KeyIDN         ; check to see if it's the keys
     BEQ   t0, t1, KeyIntHandler
+
+    ADDI  zero, t1, SwitchIDN
+    BEQ   t0, t1, SwitchIntHandler ; check to see if it's the switches
 
     RETI
 
@@ -196,7 +207,7 @@ Key0Press:
 Key0PressChangeSpeed:
     ADDI  t0, t0, QuarterSecond
     SW    t0, TLIM(zero)
-    RETI
+    BR    KeyUpdateHex
 
 
 Key1Press:
@@ -210,7 +221,175 @@ Key1PressChangeSpeed:
                                         ; using QuarterSecond
                                         ; made assembler not work
     SW    t0, TLIM(zero)
+    BR    KeyUpdateHex
+
+KeyUpdateHex:
+    CALL  GetSpeed(zero)
+    ADD   t0, rv, zero
+    LW    t1, HexShiftAmtVal(zero)
+    LSHF  t0, t0, t1
+    SW    t0, HEX(zero)
     RETI
+
+
+; -----------------------------------------------------------------
+; Switch Interrupt Handler
+
+SwitchIntHandler:
+    LW    a0, SW(zero)  ; load the current switch input into t0
+
+    ADD   t0, a0, zero
+    BEQ   t0, zero, DisplayHex0  ; return to default if no switches
+                                 ; are pressed
+
+    ADD   t0, a0, zero
+    ANDI  t0, t0, 0x1            ; if switch 0 is pressed, same thing
+    ADDI  zero, t1, 0x1
+    BEQ   t0, t1, DisplayHex0
+
+    ADD   t0, a0, zero
+    ANDI  t0, t0, 0x2            ; else if switch 1 is pressed,
+    ADDI  zero, t1, 0x2          ; use HEX1
+    BEQ   t0, t1, DisplayHex1
+
+    ADD   t0, a0, zero
+    ANDI  t0, t0, 0x4            ; else if switch 2 is pressed...
+    ADDI  zero, t1, 0x4
+    BEQ   t0, t1, DisplayHex2
+
+    ADD   t0, a0, zero
+    ANDI  t0, t0, 0x8            ; else if switch 3 is pressed...
+    ADDI  zero, t1, 0x8
+    BEQ   t0, t1, DisplayHex3
+
+    ADD   t0, a0, zero
+    ANDI  t0, t0, 0x10           ; else if switch 4 is pressed...
+    ADDI  zero, t1, 0x10
+    BEQ   t0, t1, DisplayHex4
+
+    ADD   t0, a0, zero
+    ANDI  t0, t0, 0x20           ; else if switch 5 is pressed...
+    ADDI  zero, t1, 0x20
+    BEQ   t0, t1, DisplayHex5
+
+    RETI                         ; else, RETI
+
+DisplayHex0:
+    CALL  GetSpeed(zero)         ; display the number for current
+    ADD   t0, rv, zero           ; speed on HEX0
+    SW    zero, HexShiftAmtVal(zero)
+    SW    t0, HEX(zero)
+    RETI
+
+DisplayHex1:
+    CALL  GetSpeed(zero)         ; display the number for current
+    ADD   t0, rv, zero           ; speed on HEX1
+    ADDI  zero, t1, 4
+    SW    t1, HexShiftAmtVal(zero)
+    LSHF  t0, t0, t1
+    SW    t0, HEX(zero)
+    RETI
+
+DisplayHex2:
+    CALL  GetSpeed(zero)         ; display the number for current
+    ADD   t0, rv, zero           ; speed on HEX2
+    ADDI  zero, t1, 8
+    SW    t1, HexShiftAmtVal(zero)
+    LSHF  t0, t0, t1
+    SW    t0, HEX(zero)
+    RETI
+
+DisplayHex3:
+    CALL  GetSpeed(zero)         ; display the number for current
+    ADD   t0, rv, zero           ; speed on HEX3
+    ADDI  zero, t1, 12
+    SW    t1, HexShiftAmtVal(zero)
+    LSHF  t0, t0, t1
+    SW    t0, HEX(zero)
+    RETI
+
+DisplayHex4:
+    CALL  GetSpeed(zero)         ; display the number for current
+    ADD   t0, rv, zero           ; speed on HEX4
+    ADDI  zero, t1, 16
+    SW    t1, HexShiftAmtVal(zero)
+    LSHF  t0, t0, t1
+    SW    t0, HEX(zero)
+    RETI
+
+DisplayHex5:
+    CALL  GetSpeed(zero)         ; display the number for current
+    ADD   t0, rv, zero           ; speed on HEX5
+    ADDI  zero, t1, 20
+    SW    t1, HexShiftAmtVal(zero)
+    LSHF  t0, t0, t1
+    SW    t0, HEX(zero)
+    RETI
+
+
+; A subroutine to determine what number to display on the hex
+; based on the current blink speed; returns the number in a3/rv
+GetSpeed:
+    LW    t0, TLIM(zero)           ; load the current blink speed into t0
+
+    ADDI  zero, t1, QuarterSecond  ; if it's 1/4 second, return 1
+    BEQ   t0, t1, GetSpeed1
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 1/2 second, return 2
+    BEQ   t0, t1, GetSpeed2
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 3/4 second, return 3
+    BEQ   t0, t1, GetSpeed3
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 1 second, return 4
+    BEQ   t0, t1, GetSpeed4
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 1 1/4 second, return 5
+    BEQ   t0, t1, GetSpeed5
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 1 1/2 second, return 6
+    BEQ   t0, t1, GetSpeed6
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 1 3/4 second, return 7
+    BEQ   t0, t1, GetSpeed7
+
+    ADDI  t1, t1, QuarterSecond    ; else if it's 2 seconds, return 8
+    BEQ   t0, t1, GetSpeed8
+
+    RETI                           ; should never get here, but
+                                   ; RETI to be safe
+
+GetSpeed1:
+    ADDI  zero, rv, 1
+    RET
+
+GetSpeed2:
+    ADDI  zero, rv, 2
+    RET
+
+GetSpeed3:
+    ADDI  zero, rv, 3
+    RET
+
+GetSpeed4:
+    ADDI  zero, rv, 4
+    RET
+
+GetSpeed5:
+    ADDI  zero, rv, 5
+    RET
+
+GetSpeed6:
+    ADDI  zero, rv, 6
+    RET
+
+GetSpeed7:
+    ADDI  zero, rv, 7
+    RET
+
+GetSpeed8:
+    ADDI  zero, rv, 8
+    RET
 
 
 ; -----------------------------------------------------------------
@@ -220,3 +399,5 @@ CurrStateVal:
     .WORD CurrState
 CurrCycleVal:
     .WORD CurrCycle
+HexShiftAmtVal:
+    .WORD HexShiftAmt
