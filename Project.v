@@ -1162,9 +1162,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT, SERVICE_SIG_IN);
     parameter IEBIT      = 2;           // Should it be 4??? Who knows???
     
     // Number of clock cycles (with 50 MHZ clock) in different time units
-    parameter ONE_MILLISECOND          = 'd50000;
     parameter TEN_MILLISECONDS         = 'd500000;
-    parameter FIFTY_MILLISECONDS = 'd25000000;
     
     input  [DBITS-1:0]      ABUS;
     inout  [DBITS-1:0]      DBUS;
@@ -1200,10 +1198,12 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT, SERVICE_SIG_IN);
             SWCTRL       <= 3'b100;          // IE bit should be 1 by default
             clock_cycles <= 0;
         end else begin
-            if (clock_cycles + 1 >= FIFTY_MILLISECONDS && SWDATA_temp == SWDATA_temp_old) begin
+            if (SERVICE_SIG_IN)
+                SWCTRL[READYBIT]   <= 1'b0;
+            else if (clock_cycles + 1 >= TEN_MILLISECONDS && SWDATA_temp == SWDATA_temp_old) begin
                 SWDATA_old         <= SWDATA;
                 SWDATA             <= SWDATA_temp;
-                SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1) && !SERVICE_SIG_IN;
+                SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
                 clock_cycles       <= 0;
                 SWDATA_temp        <= SW_IN;
                 SWDATA_temp_old    <= SW_IN;
