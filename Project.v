@@ -30,8 +30,8 @@ module Project(
     parameter ADDRTCTRL  = 32'hFFFFF108;
 
     // Change this to fmedian2.mif before submitting
-    //parameter IMEMINITFILE = "fmedian2.mif";
-    parameter IMEMINITFILE = "jump_to_int_test.mif";
+//    parameter IMEMINITFILE = "fmedian2.mif";
+    parameter IMEMINITFILE = "xmas.mif";
 
     parameter IMEMADDRBITS = 16;
     parameter IMEMWORDBITS = 2;
@@ -135,6 +135,43 @@ module Project(
     wire rdsysreg_ID_w;
     wire wrsysreg_EX_w;
     wire wrsysreg_MEM_w;
+    
+    //*** Interrupt Related Things ***//
+    wire key_IRQ;
+    wire sw_IRQ;
+    wire t_IRQ;
+    wire proc_IRQ;
+    
+    wire [KCTRLBITS-1:0]  kctrl_reg;
+    wire [SWCTRLBITS-1:0] swctrl_reg;
+    wire [TCTRLBITS-1:0]  tctrl_reg;
+    
+    wire pipeline_not_empty = !is_nop_FE || !is_nop_ID || !is_nop_EX || !is_nop_MEM;
+    
+    wire pipeline_empty = is_nop_FE && is_nop_ID && is_nop_EX && is_nop_MEM;
+    
+    assign key_IRQ = kctrl_reg[IEBIT] && kctrl_reg[READYBIT];
+    assign sw_IRQ = swctrl_reg[IEBIT] && swctrl_reg[READYBIT];
+    assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
+    
+    //This is set by ORing the individual devices' interrupt request signals
+    //And it is only set if interrupts are enabled (PCS[0] == 1)
+    assign proc_IRQ = PCS[0] && (key_IRQ || sw_IRQ || t_IRQ);
+    
+    parameter TIMER_DEV_NUM = 4'b0001;
+    parameter KEY_DEV_NUM   = 4'b0010;
+    parameter SW_DEV_NUM    = 4'b0011;
+    
+    //Device number priority encoding
+    wire [3:0] device_num =
+        t_IRQ ? TIMER_DEV_NUM :
+        key_IRQ ? KEY_DEV_NUM :
+        sw_IRQ ? SW_DEV_NUM :
+        4'b1111;
+        
+    wire servicing_timer  = proc_IRQ && pipeline_empty && (device_num == TIMER_DEV_NUM);
+    wire servicing_key    = proc_IRQ && pipeline_empty && (device_num == KEY_DEV_NUM);
+    wire servicing_switch = proc_IRQ && pipeline_empty && (device_num == SW_DEV_NUM);
   
     //*** IO DEVICES AND CONNECTIONS ***//
     
@@ -196,7 +233,6 @@ module Project(
     //** KEY **//
 
     tri  [DBITS-1:0]     key_dbus;   // The current value of KDATA (=KEY)
-    wire [KCTRLBITS-1:0] kctrl_reg;
     wire                 key_we;
     
     // Only check for KCTRL because KDATA cannot be written to
@@ -207,12 +243,11 @@ module Project(
     // to drive it's input value to the data bus
     assign key_dbus = key_we ? regval2_EX : {DBITS{1'bz}};
 
-    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg));
+    KEY_DEV my_key (.ABUS(io_abus), .DBUS(key_dbus), .WE(key_we), .CLK(clk), .RESET(reset), .KEY_IN(KEY), .KCTRL_OUT(kctrl_reg), .SERVICE_SIG_IN(servicing_key));
     
     //** SW **//
     
     tri  [DBITS-1:0]      sw_dbus;
-    wire [SWCTRLBITS-1:0] swctrl_reg;
     wire                  sw_we;
     
     // Only check for SWCTRL because SWDATA cannot be written to
@@ -223,12 +258,11 @@ module Project(
     // to drive it's input value to the data bus
     assign sw_dbus = sw_we ? regval2_EX : {DBITS{1'bz}};
 
-    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg));  
+    SW_DEV my_sw (.ABUS(io_abus), .DBUS(sw_dbus), .WE(sw_we), .CLK(clk), .RESET(reset), .SW_IN(SW), .SWCTRL_OUT(swctrl_reg), .SERVICE_SIG_IN(servicing_switch));  
     
     //** TIMER **//
     
     tri  [DBITS-1:0]     timer_dbus;
-    wire [TCTRLBITS-1:0] tctrl_reg;
     wire                 timer_we;   // 1 if writing to TCNT, TLIM, *or* TCTRL
     
     assign timer_we = mem_we_MEM_w && ((mem_addr_MEM_w == ADDRTCNT)
@@ -239,32 +273,7 @@ module Project(
     // to drive it's input value to the data bus
     assign timer_dbus = timer_we ? regval2_EX : {DBITS{1'bz}};
     
-    TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset), .TCTRL_OUT(tctrl_reg));
-    
-    //*** Interrupt Related Things ***//
-    wire key_IRQ;
-    wire sw_IRQ;
-    wire t_IRQ;
-    wire proc_IRQ;
-    
-    wire pipeline_not_empty = !is_nop_FE || !is_nop_ID || !is_nop_EX || !is_nop_MEM;
-    
-    wire pipeline_empty = is_nop_FE && is_nop_ID && is_nop_EX && is_nop_MEM;
-    
-    assign key_IRQ = kctrl_reg[IEBIT] && kctrl_reg[READYBIT];
-    assign sw_IRQ = swctrl_reg[IEBIT] && swctrl_reg[READYBIT];
-    assign t_IRQ = tctrl_reg[IEBIT] && tctrl_reg[READYBIT];
-    
-    //This is set by ORing the individual devices' interrupt request signals
-    //And it is only set if interrupts are enabled (PCS[0] == 1)
-    assign proc_IRQ = PCS[0] && (key_IRQ || sw_IRQ || t_IRQ);
-    
-    //Device number priority encoding
-    wire [3:0] device_num =
-        t_IRQ ? 4'b0001 :
-        key_IRQ ? 4'b0010 :
-        sw_IRQ ? 4'b0011 :
-        4'b1111;
+    TIMER_DEV my_timer (.ABUS(io_abus), .DBUS(timer_dbus), .WE(timer_we), .CLK(clk), .RESET(reset), .TCTRL_OUT(tctrl_reg), .SERVICE_SIG_IN(servicing_timer));
   
     //*** FETCH STAGE ***//
     // The PC register and update logic
@@ -316,8 +325,8 @@ module Project(
     // This statement is used to initialize the I-MEM
     // during simulation using Model-Sim
 //    initial begin
-//        $readmemh("int_mechanism_test.hex", imem);
-//        $readmemh("int_mechanism_test.hex", dmem);
+//        $readmemh("xmas.hex", imem);
+//        $readmemh("xmas.hex", dmem);
 //    end
   
     assign inst_FE_w = imem[PC_REG[IMEMADDRBITS-1:IMEMWORDBITS]];
@@ -371,7 +380,7 @@ module Project(
         end
         else if (stall_lw_EX) begin
             inst_FE <= inst_FE;
-            is_nop_FE <= 1'b1;
+            is_nop_FE <= 1'b0;
         end else begin
             inst_FE <= inst_FE_w;
             is_nop_FE <= 1'b0;
@@ -433,7 +442,7 @@ module Project(
                           (forward_rs_from_EX_sys) ? aluout_EX_r :
                           (forward_rs_from_EX) ? aluout_EX_r :
                           (forward_rs_from_MEM_sys) ? aluout_EX :
-                          (forward_rs_from_MEM) ? aluout_EX : 
+                          (forward_rs_from_MEM) ? aluout_EX :
                           (rdsysreg_ID_w && (rs_ID_w == PCS_reg_ID)) ? PCS :                 
                           (rdsysreg_ID_w && (rs_ID_w == IHA_reg_ID)) ? IHA :
                           (rdsysreg_ID_w && (rs_ID_w == IRA_reg_ID)) ? IRA :
@@ -1071,7 +1080,7 @@ module HEX_DEV(ABUS, DBUS, WE, CLK, RESET, HEX_OUT);
 endmodule
 
 
-module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
+module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT, SERVICE_SIG_IN);
     parameter DBITS     = 32;
     parameter KEYBITS   = 4;
     parameter ADDRKDATA = 32'hFFFFF080;
@@ -1095,6 +1104,9 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
                                       // to read the value of the KEY, it should
                                       // check the value from KEY_DEV's DBUS
     output [KCTRLBITS-1:0] KCTRL_OUT;
+    input                  SERVICE_SIG_IN;  // Only when 1 we are about to service
+                                            // a KEY int; used to reset ready and
+                                            // overrun bits
     
     reg  [KEYBITS-1:0]   KDATA_old;   // Holds most recent value of KDATA   
                                       // to allow for detection of changes
@@ -1112,9 +1124,11 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
         end else begin
             KDATA_old         <= KDATA;
             KDATA             <= ~KEY_IN;
-            KCTRL[READYBIT]   <= (KDATA != KDATA_old) || (KCTRL[READYBIT] == 1'b1);
+            KCTRL[READYBIT]   <= ((KDATA != KDATA_old) || (KCTRL[READYBIT] == 1'b1)) && !SERVICE_SIG_IN;
             
-            if ((kctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+            if (SERVICE_SIG_IN)
+                KCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((kctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
                 KCTRL[OVERRUNBIT] <= 1'b0;
             else if ((KDATA != KDATA_old) && (KCTRL[READYBIT] == 1'b1))
                 KCTRL[OVERRUNBIT] <= 1'b1;
@@ -1135,7 +1149,7 @@ module KEY_DEV(ABUS, DBUS, WE, CLK, RESET, KEY_IN, KCTRL_OUT);
 endmodule
 
 
-module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
+module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT, SERVICE_SIG_IN);
     parameter DBITS      = 32;
     parameter SWBITS     = 10;
     parameter ADDRSWDATA = 32'hFFFFF090;
@@ -1148,8 +1162,9 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
     parameter IEBIT      = 2;           // Should it be 4??? Who knows???
     
     // Number of clock cycles (with 50 MHZ clock) in different time units
-    parameter ONE_MILLISECOND = 'd50000;
-    parameter TEN_MILLISECONDS = 'd500000;
+    parameter ONE_MILLISECOND          = 'd50000;
+    parameter TEN_MILLISECONDS         = 'd500000;
+    parameter FIFTY_MILLISECONDS = 'd25000000;
     
     input  [DBITS-1:0]      ABUS;
     inout  [DBITS-1:0]      DBUS;
@@ -1163,6 +1178,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
                                         // to read the value of the SW, it should
                                         // check the value from SW_DEV's DBUS
     output [SWCTRLBITS-1:0] SWCTRL_OUT;
+    input                   SERVICE_SIG_IN;
     
     reg  [SWBITS-1:0]     SWDATA_old;   // Holds most recent value of SWDATA   
                                         // to allow for detection of changes
@@ -1184,10 +1200,10 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
             SWCTRL       <= 3'b100;          // IE bit should be 1 by default
             clock_cycles <= 0;
         end else begin
-            if (clock_cycles + 1 >= TEN_MILLISECONDS && SWDATA_temp == SWDATA_temp_old) begin
+            if (clock_cycles + 1 >= FIFTY_MILLISECONDS && SWDATA_temp == SWDATA_temp_old) begin
                 SWDATA_old         <= SWDATA;
                 SWDATA             <= SWDATA_temp;
-                SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1);
+                SWCTRL[READYBIT]   <= (SWDATA != SWDATA_old) || (SWCTRL[READYBIT] == 1'b1) && !SERVICE_SIG_IN;
                 clock_cycles       <= 0;
                 SWDATA_temp        <= SW_IN;
                 SWDATA_temp_old    <= SW_IN;
@@ -1201,7 +1217,9 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
                 SWDATA_temp_old <= SW_IN;
             end
             
-            if ((swctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+            if (SERVICE_SIG_IN)
+                SWCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((swctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
                 SWCTRL[OVERRUNBIT] <= 1'b0;
             else if ((SWDATA != SWDATA_old) && (SWCTRL[READYBIT] == 1'b1))
                 SWCTRL[OVERRUNBIT] <= 1'b1;
@@ -1222,7 +1240,7 @@ module SW_DEV(ABUS, DBUS, WE, CLK, RESET, SW_IN, SWCTRL_OUT);
 endmodule
 
 
-module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
+module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT, SERVICE_SIG_IN);
     parameter DBITS     = 32;
     parameter TCNTBITS  = 32;
     parameter TLIMBITS  = 32;
@@ -1245,6 +1263,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
     input                  CLK;
     input                  RESET;
     output [TCTRLBITS-1:0] TCTRL_OUT;
+    input                  SERVICE_SIG_IN;
     
     reg  [TCNTBITS-1:0]  TCNT;
     reg  [TLIMBITS-1:0]  TLIM;
@@ -1269,7 +1288,7 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
             if (tcnt_write_ctrl) begin
                 TCNT         <= DBUS;
                 clock_cycles <= 0;
-            end else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1))) begin
+            end else if ((TLIM != 0) && (TCNT >= (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1))) begin
                 TCNT         <= 0;
                 clock_cycles <= 0;
             end else if (clock_cycles >= (ONE_MILLISECOND - 1)) begin
@@ -1280,14 +1299,16 @@ module TIMER_DEV(ABUS, DBUS, WE, CLK, RESET, TCTRL_OUT);
                 
             TLIM <= tlim_write_ctrl ? DBUS : TLIM;
             
-            if ((tctrl_write_ctrl == 1'b1) && (DBUS[READYBIT] == 1'b0))
+            if ((tctrl_write_ctrl == 1'b1) && (DBUS[READYBIT] == 1'b0) || SERVICE_SIG_IN)
                 TCTRL[READYBIT] <= 1'b0;
-            else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1)))
+            else if ((TLIM != 0) && (TCNT >= (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1)))
                 TCTRL[READYBIT] <= 1'b1;
             else
                 TCTRL[READYBIT] <= TCTRL[READYBIT];
-                
-            if ((tctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
+            
+            if (SERVICE_SIG_IN)
+                TCTRL[OVERRUNBIT] <= 1'b0;
+            else if ((tctrl_write_ctrl == 1'b1) && (DBUS[OVERRUNBIT] == 1'b0))
                 TCTRL[OVERRUNBIT] <= 1'b0;
             else if ((TLIM != 0) && (TCNT == (TLIM - 1)) && (clock_cycles >= (ONE_MILLISECOND - 1)) && (TCTRL[READYBIT] == 1'b1))
                 TCTRL[OVERRUNBIT] <= 1'b1;
